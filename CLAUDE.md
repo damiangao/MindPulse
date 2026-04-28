@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a simple chat web application built with a Python FastAPI backend and a React frontend. It uses the `claude-agent-sdk` Python package to power AI conversations via WebSocket.
+A chat web application with a Python FastAPI backend and a React frontend. AI conversations are powered by the `claude-agent-sdk` Python package via WebSocket.
 
 ## Development Commands
 
-All commands are run from the repository root.
+All commands run from the repository root.
 
 ```bash
 # Start both frontend (Vite) and backend (FastAPI) in dev mode
@@ -22,6 +22,22 @@ npm run dev:client
 
 # Install Python dependencies
 uv sync
+
+# Run tests
+uv run pytest
+
+# Run a single test file
+uv run pytest tests/test_chat_store.py
+
+# Run a single test
+uv run pytest tests/test_chat_store.py::TestChatStore::test_create_chat -v
+
+# Lint and format Python
+uv run ruff check .
+uv run ruff format .
+
+# Type check Python
+uv run pyright
 
 # Run the backend directly (for testing)
 PYTHONPATH=. uv run python -m server.main

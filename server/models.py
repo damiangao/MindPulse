@@ -9,6 +9,14 @@ class Chat:
     created_at: str
     updated_at: str
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "createdAt": self.created_at,
+            "updatedAt": self.updated_at,
+        }
+
 
 @dataclass
 class ChatMessage:
@@ -17,6 +25,15 @@ class ChatMessage:
     role: Literal["user", "assistant"]
     content: str
     timestamp: str
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "chatId": self.chat_id,
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp,
+        }
 
 
 @dataclass

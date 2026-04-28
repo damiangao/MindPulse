@@ -1,13 +1,18 @@
+import os
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 
 from server.models import Chat, ChatMessage
 
 
+MAX_MESSAGES_PER_CHAT = int(os.getenv("MAX_MESSAGES_PER_CHAT", "1000"))
+
+
 class ChatStore:
     def __init__(self):
         self._chats: dict[str, Chat] = {}
-        self._messages: dict[str, list[ChatMessage]] = {}
+        self._messages: dict[str, deque[ChatMessage]] = {}
 
     def create_chat(self, chat_id: str, title: str | None = None) -> Chat:
         now = datetime.now(timezone.utc).isoformat()
@@ -18,7 +23,7 @@ class ChatStore:
             updated_at=now,
         )
         self._chats[chat_id] = chat
-        self._messages[chat_id] = []
+        self._messages[chat_id] = deque(maxlen=MAX_MESSAGES_PER_CHAT)
         return chat
 
     def get_chat(self, chat_id: str) -> Chat | None:

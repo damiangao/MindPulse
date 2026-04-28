@@ -104,8 +104,10 @@ class Session:
     def subscribe(self, client: WebSocket):
         self._subscribers.add(client)
 
-    def unsubscribe(self, client: WebSocket):
+    def unsubscribe(self, client: WebSocket) -> bool:
+        """Unsubscribe a client. Returns True if session still has subscribers."""
         self._subscribers.discard(client)
+        return self.has_subscribers()
 
     def has_subscribers(self) -> bool:
         return len(self._subscribers) > 0
