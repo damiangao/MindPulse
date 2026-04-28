@@ -4,7 +4,14 @@ import asyncio
 
 from fastapi import WebSocket
 
-from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import (
+    AssistantMessage,
+    ResultMessage,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+    ToolUseBlock,
+)
 
 from server.ai_client import AgentSession
 from server.chat_store import chat_store
@@ -15,22 +22,35 @@ class Session:
         self.chat_id = chat_id
         self._subscribers: set[WebSocket] = set()
         self._agent_session = AgentSession(session_id=chat_id)
+        self._current_response_text: str = ""
+        self._current_response_thinking: str = ""
 
     async def _process_response(self, content: str):
         """Send message to agent and broadcast responses."""
+        self._current_response_text = ""
+        self._current_response_thinking = ""
         try:
             async for message in self._agent_session.send_message(content):
                 self._handle_sdk_message(message)
         except Exception as e:
             print(f"Error in session {self.chat_id}: {e}")
             await self._broadcast_error(str(e))
+        finally:
+            # Persist the complete assistant message
+            if self._current_response_text:
+                chat_store.add_message(
+                    self.chat_id, "assistant", self._current_response_text
+                )
+            self._current_response_text = ""
+            self._current_response_thinking = ""
 
     def _handle_sdk_message(self, message: AssistantMessage | ResultMessage | SystemMessage):
         if isinstance(message, AssistantMessage):
             content = message.content
 
             if isinstance(content, str):
-                chat_store.add_message(self.chat_id, "assistant", content)
+                # Legacy string content - treat as complete message
+                self._current_response_text = content
                 asyncio.create_task(
                     self._broadcast({
                         "type": "assistant_message",
@@ -41,11 +61,20 @@ class Session:
             elif isinstance(content, list):
                 for block in content:
                     if isinstance(block, TextBlock):
-                        chat_store.add_message(self.chat_id, "assistant", block.text)
+                        self._current_response_text += block.text
                         asyncio.create_task(
                             self._broadcast({
-                                "type": "assistant_message",
-                                "content": block.text,
+                                "type": "assistant_delta",
+                                "delta": block.text,
+                                "chat_id": self.chat_id,
+                            })
+                        )
+                    elif isinstance(block, ThinkingBlock):
+                        self._current_response_thinking += block.thinking
+                        asyncio.create_task(
+                            self._broadcast({
+                                "type": "thinking_delta",
+                                "delta": block.thinking,
                                 "chat_id": self.chat_id,
                             })
                         )

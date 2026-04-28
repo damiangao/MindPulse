@@ -58,6 +58,37 @@ function ToolUseBlock({ message }) {
   );
 }
 
+function ThinkingBlock({ thinking }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (!thinking) return null;
+
+  return (
+    <div className="mb-2 border border-gray-200 bg-gray-50 rounded">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full p-2 flex items-center justify-between text-left hover:bg-gray-100"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-gray-500 uppercase">
+            Thinking
+          </span>
+        </div>
+        <span className="text-xs text-gray-400">
+          {isExpanded ? "▼" : "▶"}
+        </span>
+      </button>
+      {isExpanded && (
+        <div className="p-2 border-t border-gray-200">
+          <pre className="text-xs text-gray-600 bg-white p-2 rounded overflow-x-auto whitespace-pre-wrap">
+            {thinking}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({ message }) {
   const isUser = message.role === "user";
 
@@ -70,7 +101,15 @@ function MessageBubble({ message }) {
             : "bg-gray-100 text-gray-900"
         }`}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {!isUser && message.thinking && (
+          <ThinkingBlock thinking={message.thinking} />
+        )}
+        <p className="whitespace-pre-wrap">
+          {message.content}
+          {message.isStreaming && (
+            <span className="inline-block w-2 h-4 ml-1 bg-gray-400 animate-pulse align-middle" />
+          )}
+        </p>
       </div>
     </div>
   );

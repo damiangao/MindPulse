@@ -78,6 +78,7 @@ export default function App() {
         break;
 
       case "assistant_message":
+        // Legacy complete message (fallback)
         setMessages((prev) => [
           ...prev,
           {
@@ -88,6 +89,51 @@ export default function App() {
           },
         ]);
         setIsLoading(false);
+        break;
+
+      case "assistant_delta":
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === "assistant" && last.isStreaming) {
+            // Append to existing streaming message
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...last,
+                content: last.content + message.delta,
+              },
+            ];
+          }
+          // Create new streaming message
+          return [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: message.delta,
+              thinking: "",
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            },
+          ];
+        });
+        setIsLoading(false);
+        break;
+
+      case "thinking_delta":
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === "assistant" && last.isStreaming) {
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...last,
+                thinking: (last.thinking || "") + message.delta,
+              },
+            ];
+          }
+          return prev;
+        });
         break;
 
       case "tool_use":
@@ -105,6 +151,16 @@ export default function App() {
         break;
 
       case "result":
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last && last.role === "assistant" && last.isStreaming) {
+            return [
+              ...prev.slice(0, -1),
+              { ...last, isStreaming: false },
+            ];
+          }
+          return prev;
+        });
         setIsLoading(false);
         // Refresh chat list to get updated titles
         fetchChats();
