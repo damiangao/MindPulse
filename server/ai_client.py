@@ -17,6 +17,10 @@ _INIT_SUBTYPE = "init"
 # Project root for loading skills and CLAUDE.md via setting_sources
 PROJECT_ROOT = os.environ.get("AGENT_PROJECT_ROOT", ".")
 
+# Default model and thinking configuration
+DEFAULT_MODEL = os.environ.get("MODEL", "glm-5.1")
+DEFAULT_THINKING = {"type": "enabled", "budget_tokens": 8000}
+
 
 class AgentSession:
     """Manages a single agent conversation session.
@@ -31,8 +35,8 @@ class AgentSession:
             cwd=PROJECT_ROOT,
             system_prompt=SYSTEM_PROMPT,
             max_turns=100,
-            model="glm-5.1",
-            thinking={"type": "enabled", "budget_tokens": 8000},
+            model=DEFAULT_MODEL,
+            thinking=DEFAULT_THINKING,
             include_partial_messages=True,
             setting_sources=["project"],
             allowed_tools=[

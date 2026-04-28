@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from server.ai_client import AgentSession, SYSTEM_PROMPT
+from server.ai_client import AgentSession, DEFAULT_MODEL, SYSTEM_PROMPT
 
 
 class TestAgentSession:
@@ -44,7 +44,7 @@ class TestAgentSession:
 
         async def mock_receive():
             yield SystemMessage(subtype="init", data={"session_id": "sess-456"})
-            yield AssistantMessage(content="Hello!", model="glm-5.1")
+            yield AssistantMessage(content="Hello!", model=DEFAULT_MODEL)
 
         mock_client.receive_response = mock_receive
 
@@ -66,7 +66,7 @@ class TestAgentSession:
         from claude_agent_sdk import AssistantMessage
 
         async def mock_receive():
-            yield AssistantMessage(content="Resumed!", model="glm-5.1")
+            yield AssistantMessage(content="Resumed!", model=DEFAULT_MODEL)
 
         mock_client.receive_response = mock_receive
 
@@ -88,7 +88,7 @@ class TestAgentSession:
 
         assert options.system_prompt == SYSTEM_PROMPT
         assert options.max_turns == 100
-        assert options.model == "glm-5.1"
+        assert options.model == DEFAULT_MODEL
         assert "Bash" in options.allowed_tools
         assert options.resume is None
 

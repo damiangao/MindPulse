@@ -87,11 +87,11 @@ function ThinkingBlock({ thinking }) {
         </span>
       </button>
       {isExpanded ? (
-        <div className="mt-1 text-[11px] text-gray-500 whitespace-pre-wrap font-mono leading-relaxed">
+        <div className="mt-1 text-[11px] text-gray-500 whitespace-pre-wrap break-words font-mono leading-relaxed">
           {trimmedThinking}
         </div>
       ) : (
-        <div className="mt-1 text-[11px] text-gray-400 whitespace-pre-wrap font-mono leading-relaxed">
+        <div className="mt-1 text-[11px] text-gray-400 whitespace-pre-wrap break-words font-mono leading-relaxed">
           {displayText}
         </div>
       )}
@@ -111,7 +111,7 @@ function MessageBubble({ message }) {
             : "bg-gray-100 text-gray-900"
         }`}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        <p className="whitespace-pre-wrap break-words">{message.content}</p>
       </div>
     </div>
   );
@@ -127,21 +127,27 @@ export function ChatWindow({
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const lastMessageCountRef = useRef(0);
+  const prevMessageCountRef = useRef(0);
+
+  // Reset scroll tracking when switching chats
+  useEffect(() => {
+    prevMessageCountRef.current = messages.length;
+  }, [chatId]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
+    const hasNewMessages = messages.length > prevMessageCountRef.current;
+    if (!hasNewMessages) return;
+    prevMessageCountRef.current = messages.length;
+
     const isNearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-    const hasNewMessages = messages.length > lastMessageCountRef.current;
-    lastMessageCountRef.current = messages.length;
-
-    if (hasNewMessages || isNearBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isNearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
     }
-  }, [messages]);
+  }, [messages.length]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
