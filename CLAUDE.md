@@ -95,7 +95,7 @@ Messages are JSON with a `type` field:
 The backend reads these from `.env`:
 - `ANTHROPIC_API_KEY` — Required for `claude-agent-sdk`
 - `ANTHROPIC_BASE_URL` — Optional API base URL
-- `MODEL` — Optional model override (default: `deepseek-v4-pro`)
+- `MODEL` — Optional model override (default: `glm-5.1`)
 - `PORT` — Backend port (default: `3001`)
 
 ## Important Notes

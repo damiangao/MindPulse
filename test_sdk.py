@@ -15,7 +15,7 @@ async def test():
     options = ClaudeAgentOptions(
         system_prompt="You are a helpful assistant.",
         max_turns=3,
-        model="deepseek-v4-pro",
+        model="glm-5.1",
         allowed_tools=["Bash", "Read"],
     )
 

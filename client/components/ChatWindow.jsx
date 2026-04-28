@@ -126,9 +126,21 @@ export function ChatWindow({
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
+  const lastMessageCountRef = useRef(0);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const isNearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    const hasNewMessages = messages.length > lastMessageCountRef.current;
+    lastMessageCountRef.current = messages.length;
+
+    if (hasNewMessages || isNearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   const handleSubmit = (e) => {
@@ -166,7 +178,7 @@ export function ChatWindow({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="text-center text-gray-400 mt-8">
             <p>Start a conversation</p>
