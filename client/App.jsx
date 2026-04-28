@@ -18,6 +18,7 @@ export default function App() {
   const reconnectTimeoutRef = useRef(null);
   const fetchedRef = useRef(false);
   const selectedChatIdRef = useRef(null);
+  const loadingRef = useRef(false);
 
   const connectWebSocket = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) return;
@@ -60,15 +61,12 @@ export default function App() {
   const handleWSMessage = useCallback((message) => {
     // Only handle messages for the currently selected chat
     const msgChatId = message.chatId || message.chat_id;
-    console.log("[WS] Received:", message.type, "chatId:", msgChatId, "current:", selectedChatIdRef.current);
     if (msgChatId && msgChatId !== selectedChatIdRef.current) {
-      console.log("[WS] Filtered out message for", msgChatId);
       return;
     }
 
     switch (message.type) {
       case "connected":
-        console.log("Connected to server");
         break;
 
       case "history":
@@ -94,12 +92,9 @@ export default function App() {
         break;
 
       case "assistant_delta":
-        console.log("[WS] Processing assistant_delta:", message.delta.slice(0, 30));
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last && last.role === "assistant" && last.isStreaming) {
-            console.log("[WS] Appending to existing message");
-            // Append to existing streaming message
             return [
               ...prev.slice(0, -1),
               {
@@ -108,8 +103,6 @@ export default function App() {
               },
             ];
           }
-          console.log("[WS] Creating new streaming message");
-          // Create new streaming message
           return [
             ...prev,
             {
@@ -122,7 +115,6 @@ export default function App() {
             },
           ];
         });
-        setIsLoading(false);
         break;
 
       case "thinking_delta":
@@ -137,21 +129,17 @@ export default function App() {
               },
             ];
           }
-          // If no streaming assistant message exists yet, create one
-          if (!last || last.role !== "assistant" || !last.isStreaming) {
-            return [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                content: "",
-                thinking: message.delta,
-                isStreaming: true,
-                timestamp: new Date().toISOString(),
-              },
-            ];
-          }
-          return prev;
+          return [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "",
+              thinking: message.delta,
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            },
+          ];
         });
         break;
 
@@ -180,6 +168,7 @@ export default function App() {
           }
           return prev;
         });
+        loadingRef.current = false;
         setIsLoading(false);
         // Refresh chat list to get updated titles
         fetchChats();
@@ -187,6 +176,7 @@ export default function App() {
 
       case "error":
         console.error("Server error:", message.error);
+        loadingRef.current = false;
         setIsLoading(false);
         break;
     }
@@ -230,6 +220,7 @@ export default function App() {
     });
     setSelectedChatId(tempId);
     setMessages([]);
+    loadingRef.current = false;
     setIsLoading(false);
   };
 
@@ -301,6 +292,7 @@ export default function App() {
     selectedChatIdRef.current = chatId;
     setSelectedChatId(chatId);
     setMessages([]);
+    loadingRef.current = false;
     setIsLoading(false);
   };
 
@@ -324,7 +316,10 @@ export default function App() {
       },
     ]);
 
-    setIsLoading(true);
+    if (!loadingRef.current) {
+      loadingRef.current = true;
+      setIsLoading(true);
+    }
 
     // If in draft mode, initialize it first
     let chatId = selectedChatId;

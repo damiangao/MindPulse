@@ -19,6 +19,10 @@ class Session:
         self.chat_id = chat_id
         self._subscribers: set[WebSocket] = set()
         self._agent_session = AgentSession(session_id=chat_id)
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        """Reset per-response state variables."""
         self._current_response_text: str = ""
         self._current_response_thinking: str = ""
         self._current_tool_name: str | None = None
@@ -28,12 +32,7 @@ class Session:
 
     async def _process_response(self, content: str):
         """Send message to agent and broadcast responses."""
-        self._current_response_text = ""
-        self._current_response_thinking = ""
-        self._current_tool_name = None
-        self._current_tool_input = ""
-        self._pending_text_delta = ""
-        self._pending_thinking_delta = ""
+        self._reset_state()
         try:
             async for message in self._agent_session.send_message(content):
                 await self._handle_sdk_message(message)
@@ -48,29 +47,40 @@ class Session:
                 chat_store.add_message(
                     self.chat_id, "assistant", self._current_response_text
                 )
-            self._current_response_text = ""
-            self._current_response_thinking = ""
-            self._current_tool_name = None
-            self._current_tool_input = ""
-            self._pending_text_delta = ""
-            self._pending_thinking_delta = ""
+            self._reset_state()
 
     async def _flush_pending_deltas(self):
         """Broadcast any accumulated pending deltas."""
-        if self._pending_text_delta:
+        await self._maybe_broadcast_delta("_pending_text_delta", "assistant_delta")
+        await self._maybe_broadcast_delta("_pending_thinking_delta", "thinking_delta")
+
+    async def _maybe_broadcast_delta(self, attr: str, msg_type: str) -> None:
+        """Broadcast pending delta if it exists, then clear it."""
+        delta = getattr(self, attr)
+        if delta:
             await self._broadcast({
-                "type": "assistant_delta",
-                "delta": self._pending_text_delta,
+                "type": msg_type,
+                "delta": delta,
                 "chat_id": self.chat_id,
             })
-            self._pending_text_delta = ""
-        if self._pending_thinking_delta:
+            setattr(self, attr, "")
+
+    async def _accumulate_and_maybe_broadcast(
+        self, text: str, accumulator_attr: str, pending_attr: str, msg_type: str
+    ) -> None:
+        """Add text to accumulator and pending, broadcast if buffer is full."""
+        accumulator = getattr(self, accumulator_attr)
+        setattr(self, accumulator_attr, accumulator + text)
+        pending = getattr(self, pending_attr)
+        new_pending = pending + text
+        setattr(self, pending_attr, new_pending)
+        if len(new_pending) >= self._DELTA_BUFFER_SIZE:
             await self._broadcast({
-                "type": "thinking_delta",
-                "delta": self._pending_thinking_delta,
+                "type": msg_type,
+                "delta": new_pending,
                 "chat_id": self.chat_id,
             })
-            self._pending_thinking_delta = ""
+            setattr(self, pending_attr, "")
 
     async def _handle_sdk_message(
         self, message: AssistantMessage | ResultMessage | SystemMessage | StreamEvent
@@ -84,32 +94,23 @@ class Session:
                 delta_type = delta.get("type")
 
                 if delta_type == "text_delta":
-                    text = delta.get("text", "")
-                    self._current_response_text += text
-                    self._pending_text_delta += text
-                    if len(self._pending_text_delta) >= self._DELTA_BUFFER_SIZE:
-                        await self._broadcast({
-                            "type": "assistant_delta",
-                            "delta": self._pending_text_delta,
-                            "chat_id": self.chat_id,
-                        })
-                        self._pending_text_delta = ""
+                    await self._accumulate_and_maybe_broadcast(
+                        delta.get("text", ""),
+                        "_current_response_text",
+                        "_pending_text_delta",
+                        "assistant_delta",
+                    )
 
                 elif delta_type == "thinking_delta":
-                    thinking = delta.get("thinking", "")
-                    self._current_response_thinking += thinking
-                    self._pending_thinking_delta += thinking
-                    if len(self._pending_thinking_delta) >= self._DELTA_BUFFER_SIZE:
-                        await self._broadcast({
-                            "type": "thinking_delta",
-                            "delta": self._pending_thinking_delta,
-                            "chat_id": self.chat_id,
-                        })
-                        self._pending_thinking_delta = ""
+                    await self._accumulate_and_maybe_broadcast(
+                        delta.get("thinking", ""),
+                        "_current_response_thinking",
+                        "_pending_thinking_delta",
+                        "thinking_delta",
+                    )
 
                 elif delta_type == "input_json_delta":
-                    partial_json = delta.get("partial_json", "")
-                    self._current_tool_input += partial_json
+                    self._current_tool_input += delta.get("partial_json", "")
 
             elif event_type == "content_block_start":
                 # Flush any pending deltas before starting a new block

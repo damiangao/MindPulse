@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 
 function ToolUseBlock({ message }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -61,14 +61,17 @@ function ToolUseBlock({ message }) {
 function ThinkingBlock({ thinking }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  if (!thinking) return null;
+  const { trimmedThinking, displayText } = useMemo(() => {
+    const trimmed = thinking.trimEnd();
+    const lines = trimmed.split("\n");
+    const shouldCollapse = lines.length > 2 && !isExpanded;
+    return {
+      trimmedThinking: trimmed,
+      displayText: shouldCollapse ? lines.slice(-2).join("\n") : trimmed,
+    };
+  }, [thinking, isExpanded]);
 
-  const trimmedThinking = thinking.trimEnd();
-  const lines = trimmedThinking.split("\n");
-  const shouldCollapse = lines.length > 2 && !isExpanded;
-  const displayText = shouldCollapse
-    ? lines.slice(-2).join("\n")
-    : trimmedThinking;
+  if (!thinking) return null;
 
   return (
     <div className="max-w-[80%] ml-0">

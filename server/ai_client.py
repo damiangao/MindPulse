@@ -1,3 +1,4 @@
+import os
 from dataclasses import replace
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, SystemMessage
@@ -13,6 +14,9 @@ Be concise but thorough in your responses."""
 
 _INIT_SUBTYPE = "init"
 
+# Project root for loading skills and CLAUDE.md via setting_sources
+PROJECT_ROOT = os.environ.get("AGENT_PROJECT_ROOT", ".")
+
 
 class AgentSession:
     """Manages a single agent conversation session.
@@ -24,11 +28,13 @@ class AgentSession:
     def __init__(self, session_id: str | None = None):
         self.session_id = session_id
         self._options = ClaudeAgentOptions(
+            cwd=PROJECT_ROOT,
             system_prompt=SYSTEM_PROMPT,
             max_turns=100,
             model="deepseek-v4-pro",
             thinking={"type": "adaptive"},
             include_partial_messages=True,
+            setting_sources=["project"],
             allowed_tools=[
                 "Bash",
                 "Read",
