@@ -27,6 +27,8 @@ class AgentSession:
             system_prompt=SYSTEM_PROMPT,
             max_turns=100,
             model="deepseek-v4-pro",
+            thinking={"type": "adaptive"},
+            include_partial_messages=True,
             allowed_tools=[
                 "Bash",
                 "Read",

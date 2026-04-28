@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 from server.models import Chat, ChatMessage
 
-
 MAX_MESSAGES_PER_CHAT = int(os.getenv("MAX_MESSAGES_PER_CHAT", "1000"))
 
 

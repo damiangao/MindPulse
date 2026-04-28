@@ -43,13 +43,15 @@ uv run pyright
 PYTHONPATH=. uv run python -m server.main
 ```
 
+**Environment variables:** The backend reads `.env` via `load_dotenv()` in `server/main.py`. Any code using `claude-agent-sdk` directly (tests, scripts) must call `load_dotenv()` before importing the SDK — it reads `ANTHROPIC_API_KEY` from the environment at initialization time.
+
 ## Architecture
 
 ### Backend (Python / FastAPI)
 
 - **`server/main.py`** — FastAPI app with REST API and WebSocket endpoint (`/ws`).
-- **`server/session.py`** — `Session` class manages one chat session. It wraps `AgentSession`, stores messages via `chat_store`, and broadcasts responses to WebSocket subscribers.
-- **`server/ai_client.py`** — `AgentSession` wraps `ClaudeSDKClient` from `claude-agent-sdk`. It yields SDK messages and extracts `session_id` from `SystemMessage(subtype="init")`.
+- **`server/session.py`** — `Session` class manages one chat session. It wraps `AgentSession`, stores messages via `chat_store`, and broadcasts responses to WebSocket subscribers. Uses `StreamEvent` from the SDK for streaming output, with a `_DELTA_BUFFER_SIZE` of 20 chars to batch small deltas before broadcasting.
+- **`server/ai_client.py`** — `AgentSession` wraps `ClaudeSDKClient` from `claude-agent-sdk`. It yields SDK messages and extracts `session_id` from `SystemMessage(subtype="init")`. Configured with `include_partial_messages=True` and `thinking={"type": "adaptive"}`.
 - **`server/chat_store.py`** — In-memory `ChatStore` singleton. `create_chat()` takes an external ID (the SDK's `session_id`). `add_message()` auto-updates the chat title from the first user message.
 - **`server/models.py`** — Dataclasses: `Chat`, `ChatMessage`.
 
@@ -68,6 +70,7 @@ PYTHONPATH=. uv run python -m server.main
 - **Draft chat pattern:** Clicking "New Chat" creates a local temporary chat (not sent to backend). The backend SDK session is only initialized when the user sends their first message. This makes "New Chat" instant.
 - `selectedChatIdRef` is used in WebSocket callbacks to avoid stale closures.
 - The sidebar only shows "formal" chats (`chats` state). Draft chats are not shown.
+- Thinking content is displayed outside the message bubble, collapsed to 2 lines by default. Empty content bubbles are not rendered.
 
 ### WebSocket Protocol
 
@@ -80,9 +83,11 @@ Messages are JSON with a `type` field:
 | `connected` | Server → Client | Connection established |
 | `history` | Server → Client | Existing messages for subscribed chat |
 | `user_message` | Server → Client | User message echoed back |
-| `assistant_message` | Server → Client | AI response text |
+| `assistant_delta` | Server → Client | Streaming text chunk (batched) |
+| `thinking_delta` | Server → Client | Streaming thinking chunk (batched) |
 | `tool_use` | Server → Client | Tool use block (displayed in UI) |
 | `result` | Server → Client | Query completed |
+| `assistant_message` | Server → Client | Legacy complete message (fallback) |
 | `error` | Server → Client | Error occurred |
 
 ### Environment Variables

@@ -38,6 +38,8 @@ lsof -ti:5173 | xargs kill -9 2>/dev/null
 npm run dev
 ```
 
+> **Important:** The backend loads `.env` automatically via `load_dotenv()` in `server/main.py`. If you run Python code that uses `claude-agent-sdk` directly (tests, scripts), you must call `load_dotenv()` before importing the SDK — it reads `ANTHROPIC_API_KEY` from the environment at initialization time.
+
 This starts:
 - Backend server on http://localhost:3001
 - Vite dev server on http://localhost:5173
@@ -98,7 +100,8 @@ Visit http://localhost:5173 to view the chat interface.
 **Server -> Client:**
 - `{ type: "connected" }` - Connection established
 - `{ type: "history", messages: [...] }` - Chat history
-- `{ type: "assistant_message", content: string }` - AI response
+- `{ type: "assistant_delta", delta: string }` - Streaming text chunk
+- `{ type: "thinking_delta", delta: string }` - Streaming thinking chunk
 - `{ type: "tool_use", toolName: string, toolInput: {...} }` - Tool being used
 - `{ type: "result", success: boolean }` - Query complete
 - `{ type: "error", error: string }` - Error occurred
@@ -107,5 +110,5 @@ Visit http://localhost:5173 to view the chat interface.
 
 - In-memory storage (data lost on restart)
 - Agent has access to: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch
-- Uses `ClaudeSDKClient` for multi-turn conversations with the Python SDK
+- Uses `ClaudeSDKClient` with `StreamEvent` streaming for real-time responses
 - FastAPI handles both REST API and WebSocket in a single server

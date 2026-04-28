@@ -60,7 +60,9 @@ export default function App() {
   const handleWSMessage = useCallback((message) => {
     // Only handle messages for the currently selected chat
     const msgChatId = message.chatId || message.chat_id;
+    console.log("[WS] Received:", message.type, "chatId:", msgChatId, "current:", selectedChatIdRef.current);
     if (msgChatId && msgChatId !== selectedChatIdRef.current) {
+      console.log("[WS] Filtered out message for", msgChatId);
       return;
     }
 
@@ -92,9 +94,11 @@ export default function App() {
         break;
 
       case "assistant_delta":
+        console.log("[WS] Processing assistant_delta:", message.delta.slice(0, 30));
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last && last.role === "assistant" && last.isStreaming) {
+            console.log("[WS] Appending to existing message");
             // Append to existing streaming message
             return [
               ...prev.slice(0, -1),
@@ -104,6 +108,7 @@ export default function App() {
               },
             ];
           }
+          console.log("[WS] Creating new streaming message");
           // Create new streaming message
           return [
             ...prev,
@@ -132,6 +137,20 @@ export default function App() {
               },
             ];
           }
+          // If no streaming assistant message exists yet, create one
+          if (!last || last.role !== "assistant" || !last.isStreaming) {
+            return [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: "",
+                thinking: message.delta,
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+              },
+            ];
+          }
           return prev;
         });
         break;
@@ -140,7 +159,7 @@ export default function App() {
         setMessages((prev) => [
           ...prev,
           {
-            id: message.toolId,
+            id: crypto.randomUUID(),
             role: "tool_use",
             content: "",
             timestamp: new Date().toISOString(),
@@ -237,9 +256,11 @@ export default function App() {
         setChats((prev) => [formalChat, ...prev]);
         setDraftChat(null);
         // Update selectedChatId so ChatWindow renders correctly
+        // Also immediately update the ref so WebSocket message handler
+        // doesn't filter out messages for the new chat ID
+        selectedChatIdRef.current = data.id;
         setSelectedChatId((current) => {
           if (current === chatId) {
-            selectedChatIdRef.current = data.id;
             return data.id;
           }
           return current;

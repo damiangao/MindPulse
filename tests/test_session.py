@@ -64,12 +64,28 @@ class TestSession:
         mock_ws = AsyncMock()
         session.subscribe(mock_ws)
 
-        # Mock the agent response
+        # Mock the agent response with StreamEvent deltas
         async def mock_send_message(content):
-            from claude_agent_sdk import AssistantMessage, ResultMessage
+            from claude_agent_sdk.types import StreamEvent
 
-            yield AssistantMessage(content="Hello!", model="deepseek-v4-pro")
-            yield ResultMessage(subtype="success", total_cost_usd=0.01, duration_ms=100)
+            yield StreamEvent(
+                uuid="evt-1",
+                session_id="chat-1",
+                event={
+                    "type": "content_block_delta",
+                    "delta": {"type": "text_delta", "text": "Hello"},
+                },
+                parent_tool_use_id=None,
+            )
+            yield StreamEvent(
+                uuid="evt-2",
+                session_id="chat-1",
+                event={
+                    "type": "content_block_delta",
+                    "delta": {"type": "text_delta", "text": "!"},
+                },
+                parent_tool_use_id=None,
+            )
 
         mock_agent_session.send_message = mock_send_message
 
@@ -81,7 +97,7 @@ class TestSession:
         # Wait for background task to complete
         await asyncio.sleep(0.1)
 
-        # Assistant message should be stored
+        # Assistant message should be stored with accumulated text
         mock_chat_store.add_message.assert_called_with("chat-1", "assistant", "Hello!")
 
     @patch("server.session.AgentSession")

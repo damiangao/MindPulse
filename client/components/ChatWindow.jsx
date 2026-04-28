@@ -63,26 +63,33 @@ function ThinkingBlock({ thinking }) {
 
   if (!thinking) return null;
 
+  const trimmedThinking = thinking.trimEnd();
+  const lines = trimmedThinking.split("\n");
+  const shouldCollapse = lines.length > 2 && !isExpanded;
+  const displayText = shouldCollapse
+    ? lines.slice(-2).join("\n")
+    : trimmedThinking;
+
   return (
-    <div className="mb-2 border border-gray-200 bg-gray-50 rounded">
+    <div className="max-w-[80%] ml-0">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full p-2 flex items-center justify-between text-left hover:bg-gray-100"
+        className="flex items-center gap-1.5 text-gray-400 hover:text-gray-600 transition-colors"
       >
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-gray-500 uppercase">
-            Thinking
-          </span>
-        </div>
-        <span className="text-xs text-gray-400">
+        <span className="text-[10px] font-medium uppercase tracking-wider">
+          Thinking
+        </span>
+        <span className="text-[10px]">
           {isExpanded ? "▼" : "▶"}
         </span>
       </button>
-      {isExpanded && (
-        <div className="p-2 border-t border-gray-200">
-          <pre className="text-xs text-gray-600 bg-white p-2 rounded overflow-x-auto whitespace-pre-wrap">
-            {thinking}
-          </pre>
+      {isExpanded ? (
+        <div className="mt-1 text-[11px] text-gray-500 whitespace-pre-wrap font-mono leading-relaxed">
+          {trimmedThinking}
+        </div>
+      ) : (
+        <div className="mt-1 text-[11px] text-gray-400 whitespace-pre-wrap font-mono leading-relaxed">
+          {displayText}
         </div>
       )}
     </div>
@@ -101,15 +108,7 @@ function MessageBubble({ message }) {
             : "bg-gray-100 text-gray-900"
         }`}
       >
-        {!isUser && message.thinking && (
-          <ThinkingBlock thinking={message.thinking} />
-        )}
-        <p className="whitespace-pre-wrap">
-          {message.content}
-          {message.isStreaming && (
-            <span className="inline-block w-2 h-4 ml-1 bg-gray-400 animate-pulse align-middle" />
-          )}
-        </p>
+        <p className="whitespace-pre-wrap">{message.content}</p>
       </div>
     </div>
   );
@@ -174,8 +173,13 @@ export function ChatWindow({
             {messages.map((msg) =>
               msg.role === "tool_use" ? (
                 <ToolUseBlock key={msg.id} message={msg} />
-              ) : (
-                <MessageBubble key={msg.id} message={msg} />
+              ) : msg.role === "assistant" && !msg.content?.trim() && !msg.thinking?.trim() ? null : (
+                <div key={msg.id} className="space-y-1">
+                  {msg.role !== "user" && msg.thinking && (
+                    <ThinkingBlock thinking={msg.thinking} />
+                  )}
+                  {msg.content?.trim() && <MessageBubble message={msg} />}
+                </div>
               )
             )}
             {isLoading && (
