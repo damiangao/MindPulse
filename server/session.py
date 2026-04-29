@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+"""Session management for WebSocket chat connections."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +22,7 @@ class Session:
         self.chat_id = chat_id
         self._subscribers: set[WebSocket] = set()
         self._agent_session = AgentSession(session_id=chat_id)
+        self._response_task: asyncio.Task | None = None
         self._reset_state()
 
     def _reset_state(self) -> None:
@@ -32,22 +36,43 @@ class Session:
 
     async def _process_response(self, content: str):
         """Send message to agent and broadcast responses."""
+        print(f"[Session {self.chat_id}] _process_response started for: {content[:50]}...")
         self._reset_state()
         try:
+            msg_count = 0
             async for message in self._agent_session.send_message(content):
+                msg_count += 1
+                msg_type = type(message).__name__
+                print(f"[Session {self.chat_id}] Processing SDK message #{msg_count}: {msg_type}")
                 await self._handle_sdk_message(message)
+            print(f"[Session {self.chat_id}] Finished iterating SDK messages, total={msg_count}")
             # Flush any remaining pending deltas
             await self._flush_pending_deltas()
+        except asyncio.CancelledError:
+            print(f"[Session {self.chat_id}] _process_response cancelled (interrupted)")
+            # Task was cancelled (interrupted by new user message or stop button)
+            # Do NOT persist partial output - discard it per UX convention
+            await self._broadcast(
+                {
+                    "type": "interrupted",
+                    "chat_id": self.chat_id,
+                }
+            )
+            raise
         except Exception as e:
-            print(f"Error in session {self.chat_id}: {e}")
+            print(f"[Session {self.chat_id}] Error in _process_response: {e}")
             await self._broadcast_error(str(e))
         finally:
-            # Persist the complete assistant message
+            print(f"[Session {self.chat_id}] _process_response finally block, current_response_text length={len(self._current_response_text)}")
+            # Only persist complete assistant messages (not when cancelled)
             if self._current_response_text:
-                chat_store.add_message(
-                    self.chat_id, "assistant", self._current_response_text
-                )
+                chat_store.add_message(self.chat_id, "assistant", self._current_response_text)
+                print(f"[Session {self.chat_id}] Persisted assistant message, length={len(self._current_response_text)}")
+            else:
+                print(f"[Session {self.chat_id}] No assistant text to persist")
             self._reset_state()
+            self._response_task = None
+            print(f"[Session {self.chat_id}] _process_response ended")
 
     async def _flush_pending_deltas(self):
         """Broadcast any accumulated pending deltas."""
@@ -58,11 +83,13 @@ class Session:
         """Broadcast pending delta if it exists, then clear it."""
         delta = getattr(self, attr)
         if delta:
-            await self._broadcast({
-                "type": msg_type,
-                "delta": delta,
-                "chat_id": self.chat_id,
-            })
+            await self._broadcast(
+                {
+                    "type": msg_type,
+                    "delta": delta,
+                    "chat_id": self.chat_id,
+                }
+            )
             setattr(self, attr, "")
 
     async def _accumulate_and_maybe_broadcast(
@@ -75,11 +102,13 @@ class Session:
         new_pending = pending + text
         setattr(self, pending_attr, new_pending)
         if len(new_pending) >= self._DELTA_BUFFER_SIZE:
-            await self._broadcast({
-                "type": msg_type,
-                "delta": new_pending,
-                "chat_id": self.chat_id,
-            })
+            await self._broadcast(
+                {
+                    "type": msg_type,
+                    "delta": new_pending,
+                    "chat_id": self.chat_id,
+                }
+            )
             setattr(self, pending_attr, "")
 
     async def _handle_sdk_message(
@@ -133,12 +162,14 @@ class Session:
                             tool_input = {}
                     except json.JSONDecodeError:
                         tool_input = {}
-                    await self._broadcast({
-                        "type": "tool_use",
-                        "tool_name": self._current_tool_name,
-                        "tool_input": tool_input,
-                        "chat_id": self.chat_id,
-                    })
+                    await self._broadcast(
+                        {
+                            "type": "tool_use",
+                            "tool_name": self._current_tool_name,
+                            "tool_input": tool_input,
+                            "chat_id": self.chat_id,
+                        }
+                    )
                     self._current_tool_name = None
                     self._current_tool_input = ""
 
@@ -148,13 +179,15 @@ class Session:
 
         elif isinstance(message, ResultMessage):
             await self._flush_pending_deltas()
-            await self._broadcast({
-                "type": "result",
-                "success": message.subtype == "success",
-                "chat_id": self.chat_id,
-                "cost": message.total_cost_usd,
-                "duration": message.duration_ms,
-            })
+            await self._broadcast(
+                {
+                    "type": "result",
+                    "success": message.subtype == "success",
+                    "chat_id": self.chat_id,
+                    "cost": message.total_cost_usd,
+                    "duration": message.duration_ms,
+                }
+            )
 
         elif isinstance(message, SystemMessage):
             # System messages include retry info, errors, and init messages
@@ -164,27 +197,48 @@ class Session:
             elif message.subtype == "error":
                 error_msg = str(message)
                 print(f"SDK error in session {self.chat_id}: {error_msg}")
-                await self._broadcast({
-                    "type": "error",
-                    "error": error_msg,
-                    "chat_id": self.chat_id,
-                })
+                await self._broadcast(
+                    {
+                        "type": "error",
+                        "error": error_msg,
+                        "chat_id": self.chat_id,
+                    }
+                )
             else:
                 print(f"SDK system message in session {self.chat_id}: {message}")
 
     async def send_message(self, content: str):
+        print(f"[Session {self.chat_id}] send_message called with: {content[:50]}...")
+        # If there's an in-flight response, interrupt it first.
+        if self._response_task and not self._response_task.done():
+            print(
+                f"[Session {self.chat_id}] Interrupting in-flight response "
+                f"for new message: {content[:30]}..."
+            )
+            await self._agent_session.interrupt()
+            self._response_task.cancel()
+            try:
+                await self._response_task
+            except asyncio.CancelledError:
+                pass
+            print(f"[Session {self.chat_id}] Old task cancelled")
+
         # Store user message
         chat_store.add_message(self.chat_id, "user", content)
 
         # Broadcast user message
-        await self._broadcast({
-            "type": "user_message",
-            "content": content,
-            "chat_id": self.chat_id,
-        })
+        await self._broadcast(
+            {
+                "type": "user_message",
+                "content": content,
+                "chat_id": self.chat_id,
+            }
+        )
 
         # Send to agent and process response
-        asyncio.create_task(self._process_response(content))
+        print(f"[Session {self.chat_id}] Starting new response task for: {content[:50]}...")
+        self._response_task = asyncio.create_task(self._process_response(content))
+        print(f"[Session {self.chat_id}] Response task created, task_id={id(self._response_task)}")
 
     def subscribe(self, client: WebSocket):
         self._subscribers.add(client)
@@ -208,12 +262,35 @@ class Session:
         self._subscribers -= dead_clients
 
     async def _broadcast_error(self, error: str):
-        await self._broadcast({
-            "type": "error",
-            "error": error,
-            "chat_id": self.chat_id,
-        })
+        await self._broadcast(
+            {
+                "type": "error",
+                "error": error,
+                "chat_id": self.chat_id,
+            }
+        )
+
+    async def stop_response(self):
+        """Stop the current assistant response without sending a new message."""
+        print(f"[Session {self.chat_id}] stop_response called")
+        if self._response_task and not self._response_task.done():
+            print(f"[Session {self.chat_id}] Stopping in-flight response task")
+            await self._agent_session.interrupt()
+            self._response_task.cancel()
+            try:
+                await self._response_task
+            except asyncio.CancelledError:
+                print(f"[Session {self.chat_id}] Response task cancelled successfully")
+                pass
+            print(f"[Session {self.chat_id}] Finished stop_response")
+        else:
+            print(f"[Session {self.chat_id}] No in-flight response to stop")
 
     async def close(self):
-        # AgentSession uses async with internally, no explicit cleanup needed
-        pass
+        if self._response_task and not self._response_task.done():
+            self._response_task.cancel()
+            try:
+                await self._response_task
+            except asyncio.CancelledError:
+                pass
+        await self._agent_session.close()

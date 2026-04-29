@@ -153,8 +153,17 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif msg_type == "chat":
                     chat_id = message["chatId"]
                     content = message["content"]
+                    print(f"[WebSocket] Received chat message for chat_id={chat_id}, content={content[:50]}...")
                     session = get_or_create_session(chat_id)
                     await session.send_message(content)
+                    print(f"[WebSocket] Finished processing chat message for chat_id={chat_id}")
+
+                elif msg_type == "stop":
+                    chat_id = message["chatId"]
+                    print(f"[WebSocket] Received stop request for chat_id={chat_id}")
+                    session = get_or_create_session(chat_id)
+                    await session.stop_response()
+                    print(f"[WebSocket] Finished processing stop request for chat_id={chat_id}")
 
                 else:
                     print(f"Unknown message type: {msg_type}")
