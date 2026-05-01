@@ -93,15 +93,16 @@ export default function App() {
 
       case "assistant_delta":
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.isStreaming) {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                content: last.content + message.delta,
-              },
-            ];
+          const revIdx = prev.slice().reverse()
+            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          if (revIdx >= 0) {
+            const idx = prev.length - 1 - revIdx;
+            const next = [...prev];
+            next[idx] = {
+              ...next[idx],
+              content: next[idx].content + message.delta,
+            };
+            return next;
           }
           return [
             ...prev,
@@ -119,15 +120,16 @@ export default function App() {
 
       case "thinking_delta":
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.isStreaming) {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                thinking: (last.thinking || "") + message.delta,
-              },
-            ];
+          const revIdx = prev.slice().reverse()
+            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          if (revIdx >= 0) {
+            const idx = prev.length - 1 - revIdx;
+            const next = [...prev];
+            next[idx] = {
+              ...next[idx],
+              thinking: (next[idx].thinking || "") + message.delta,
+            };
+            return next;
           }
           return [
             ...prev,
@@ -144,27 +146,58 @@ export default function App() {
         break;
 
       case "tool_use":
-        setMessages((prev) => [
-          ...prev,
-          {
+        setMessages((prev) => {
+          // Find the last streaming assistant message
+          const assistantIdx = prev.findLastIndex(
+            (m) => m.role === "assistant" && m.isStreaming
+          );
+          // Insert tool_use right after the assistant that triggered it
+          const insertIdx = assistantIdx >= 0 ? assistantIdx + 1 : prev.length;
+          const next = [...prev];
+          next.splice(insertIdx, 0, {
             id: crypto.randomUUID(),
             role: "tool_use",
             content: "",
             timestamp: new Date().toISOString(),
             toolName: message.tool_name,
             toolInput: message.tool_input,
-          },
-        ]);
+          });
+          return next;
+        });
+        break;
+
+      case "interrupted":
+        setMessages((prev) => {
+          // Find the last streaming assistant (may not be the very last if user
+          // sent a new message while assistant was still streaming)
+          const revIdx = prev.slice().reverse()
+            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          if (revIdx >= 0) {
+            const idx = prev.length - 1 - revIdx;
+            const next = [...prev];
+            next[idx] = {
+              ...next[idx],
+              isStreaming: false,
+              // Clear thinking so the old thinking block disappears
+              thinking: "",
+            };
+            return next;
+          }
+          return prev;
+        });
+        loadingRef.current = false;
+        setIsLoading(false);
         break;
 
       case "result":
         setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.isStreaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, isStreaming: false },
-            ];
+          const revIdx = prev.slice().reverse()
+            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          if (revIdx >= 0) {
+            const idx = prev.length - 1 - revIdx;
+            const next = [...prev];
+            next[idx] = { ...next[idx], isStreaming: false };
+            return next;
           }
           return prev;
         });
@@ -371,6 +404,13 @@ export default function App() {
         isConnected={isConnected}
         isLoading={isLoading}
         onSendMessage={handleSendMessage}
+        onStopResponse={() => {
+          if (wsRef.current?.readyState === WebSocket.OPEN && selectedChatId) {
+            wsRef.current.send(
+              JSON.stringify({ type: "stop", chatId: selectedChatId })
+            );
+          }
+        }}
       />
     </div>
   );

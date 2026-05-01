@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -8,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from server._logging import setup_logger
 from server.ai_client import AgentSession
 from server.chat_store import chat_store
 from server.session import Session
@@ -15,6 +18,21 @@ from server.session import Session
 load_dotenv(override=True)
 
 PORT = int(os.getenv("PORT", "3001"))
+
+# Configure uvicorn/fastapi logging to include date+time
+LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+for _uvlogger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    _uvlog = logging.getLogger(_uvlogger_name)
+    _uvlog.handlers.clear()
+    _uvconsole = logging.StreamHandler(sys.stderr)
+    _uvconsole.setFormatter(logging.Formatter(
+        f"%(asctime)s [%(process)d] %(levelname)s: %(message)s",
+        datefmt=LOG_TIMESTAMP_FORMAT,
+    ))
+    _uvlog.addHandler(_uvconsole)
+    _uvlog.setLevel(logging.INFO)
+
+_logger = setup_logger("main")
 
 # Session management
 _sessions: dict[str, Session] = {}
@@ -122,7 +140,7 @@ async def get_messages(chat_id: str):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("WebSocket client connected")
+    _logger.info("WebSocket client connected")
 
     await websocket.send_json({
         "type": "connected",
@@ -140,7 +158,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     chat_id = message["chatId"]
                     session = get_or_create_session(chat_id)
                     session.subscribe(websocket)
-                    print(f"Client subscribed to chat {chat_id}")
+                    _logger.debug(f"Client subscribed to chat {chat_id}")
 
                     # Send existing messages
                     messages = chat_store.get_messages(chat_id)
@@ -153,20 +171,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif msg_type == "chat":
                     chat_id = message["chatId"]
                     content = message["content"]
-                    print(f"[WebSocket] Received chat message for chat_id={chat_id}, content={content[:50]}...")
+                    _logger.debug(f"[WebSocket] Received chat message for chat_id={chat_id}, content={content[:50]}...")
                     session = get_or_create_session(chat_id)
                     await session.send_message(content)
-                    print(f"[WebSocket] Finished processing chat message for chat_id={chat_id}")
+                    _logger.debug(f"[WebSocket] Finished processing chat message for chat_id={chat_id}")
 
                 elif msg_type == "stop":
                     chat_id = message["chatId"]
-                    print(f"[WebSocket] Received stop request for chat_id={chat_id}")
+                    _logger.debug(f"[WebSocket] Received stop request for chat_id={chat_id}")
                     session = get_or_create_session(chat_id)
                     await session.stop_response()
-                    print(f"[WebSocket] Finished processing stop request for chat_id={chat_id}")
+                    _logger.debug(f"[WebSocket] Finished processing stop request for chat_id={chat_id}")
 
                 else:
-                    print(f"Unknown message type: {msg_type}")
+                    _logger.warning(f"Unknown message type: {msg_type}")
 
             except json.JSONDecodeError:
                 await websocket.send_json({
@@ -174,14 +192,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     "error": "Invalid message format",
                 })
             except Exception as e:
-                print(f"Error handling WebSocket message: {e}")
+                _logger.error(f"Error handling WebSocket message: {e}")
                 await websocket.send_json({
                     "type": "error",
                     "error": str(e),
                 })
 
     except WebSocketDisconnect:
-        print("WebSocket client disconnected")
+        _logger.info("WebSocket client disconnected")
         # Unsubscribe from all sessions and clean up empty ones
         dead_sessions: list[str] = []
         for chat_id, session in _sessions.items():
@@ -191,15 +209,15 @@ async def websocket_endpoint(websocket: WebSocket):
         for chat_id in dead_sessions:
             await _sessions[chat_id].close()
             del _sessions[chat_id]
-            print(f"Cleaned up session {chat_id}")
+            _logger.info(f"Cleaned up session {chat_id}")
 
 
 def main():
     import uvicorn
 
-    print(f"Server running at http://localhost:{PORT}")
-    print(f"WebSocket endpoint available at ws://localhost:{PORT}/ws")
-    print(f"Visit http://localhost:{PORT} to view the chat interface")
+    _logger.info(f"Server running at http://localhost:{PORT}")
+    _logger.info(f"WebSocket endpoint available at ws://localhost:{PORT}/ws")
+    _logger.info(f"Visit http://localhost:{PORT} to view the chat interface")
 
     uvicorn.run(
         "server.main:app",

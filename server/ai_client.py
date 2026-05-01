@@ -7,6 +7,8 @@ from dataclasses import replace
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, SystemMessage
 
+from server._logging import setup_logger
+
 SYSTEM_PROMPT = (
     "You are a helpful AI assistant. You can help users with a wide variety"
     " of tasks including: answering questions, writing and editing text,"
@@ -20,8 +22,10 @@ _INIT_SUBTYPE = "init"
 PROJECT_ROOT = os.environ.get("AGENT_PROJECT_ROOT", ".")
 
 # Default model and thinking configuration
-DEFAULT_MODEL = os.environ.get("MODEL", "glm-5.1")
+DEFAULT_MODEL = os.environ.get("MODEL", "MiniMax-M2.7")
 DEFAULT_THINKING = {"type": "enabled", "budget_tokens": 8000}
+
+_logger = setup_logger("ai_client")
 
 
 class AgentSession:
@@ -95,7 +99,7 @@ class AgentSession:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            print(f"Error receiving messages: {e}")
+            _logger.error(f"Error receiving messages: {e}")
 
     async def connect(self) -> None:
         """Establish a persistent connection to the SDK."""
@@ -146,14 +150,27 @@ class AgentSession:
         if not self._connected:
             await self.connect()
 
-        print(f"[AgentSession] send_message starting, content={content[:30]}...")
+        # Clear any stale messages that may have arrived after interrupt
+        # cleanup or from a previous turn. This prevents old responses from
+        # being returned for new messages.
+        stale_count = 0
+        while not self._response_queue.empty():
+            try:
+                self._response_queue.get_nowait()
+                stale_count += 1
+            except asyncio.QueueEmpty:
+                break
+        if stale_count:
+            _logger.debug(f"[AgentSession] Cleared {stale_count} stale messages before sending")
+
+        _logger.debug(f"[AgentSession] send_message starting, content={content[:30]}...")
 
         # Send the user message
         await self._message_queue.put({
             "type": "user",
             "message": {"role": "user", "content": content},
         })
-        print("[AgentSession] Message queued")
+        _logger.debug("[AgentSession] Message queued")
 
         # Yield messages until we see a ResultMessage
         msg_count = 0
@@ -164,17 +181,17 @@ class AgentSession:
                 )
             except asyncio.TimeoutError:
                 if self._closed:
-                    print("[AgentSession] Closed, exiting")
+                    _logger.debug("[AgentSession] Closed, exiting")
                     break
                 continue
 
             msg_count += 1
             msg_type = type(message).__name__
-            print(f"[AgentSession] Got message #{msg_count}: {msg_type}")
+            _logger.debug(f"[AgentSession] Got message #{msg_count}: {msg_type}")
 
             yield message
             if isinstance(message, ResultMessage):
-                print("[AgentSession] Got ResultMessage, breaking")
+                _logger.debug("[AgentSession] Got ResultMessage, breaking")
                 break
 
     async def _drain_queues(self) -> None:
@@ -193,20 +210,50 @@ class AgentSession:
                 drained_resp += 1
             except asyncio.QueueEmpty:
                 break
-        print(f"[AgentSession] Drained queues: message_queue={drained_msg}, response_queue={drained_resp}")
+        _logger.debug(f"[AgentSession] Drained queues: message_queue={drained_msg}, response_queue={drained_resp}")
 
     async def interrupt(self) -> None:
         """Interrupt the current assistant response (streaming mode only).
 
         Calls client.interrupt() to send a stop signal to the SDK, then
-        drains both queues to clear any stale messages.
+        drains the response queue until the ResultMessage for the interrupted
+        turn is consumed. This follows the SDK documentation which states that
+        after interrupt(), receive_response() must be called to drain messages.
         """
-        print(f"[AgentSession] interrupt called, client exists={self._client is not None}")
+        _logger.debug(f"[AgentSession] interrupt called, client exists={self._client is not None}")
         if self._client:
             await self._client.interrupt()
-            print("[AgentSession] SDK interrupt() called")
-        await self._drain_queues()
-        print("[AgentSession] Queues drained")
+            _logger.debug("[AgentSession] SDK interrupt() called")
+
+        # Drain response queue until we see ResultMessage or queue is empty
+        # for a sustained period. This consumes the interrupted turn's
+        # remaining messages as required by the SDK.
+        # Use a longer wait (up to 2s) because _receive_messages may still be
+        # pushing messages after the interrupt signal is processed.
+        drained_count = 0
+        empty_streak = 0
+        while empty_streak < 40:
+            try:
+                message = self._response_queue.get_nowait()
+                drained_count += 1
+                empty_streak = 0
+                if isinstance(message, ResultMessage):
+                    _logger.debug(f"[AgentSession] Drained ResultMessage (subtype={message.subtype}), interrupt cleanup done")
+                    break
+            except asyncio.QueueEmpty:
+                empty_streak += 1
+                await asyncio.sleep(0.05)
+
+        # Also drain any pending messages in the message queue
+        msg_drained = 0
+        while not self._message_queue.empty():
+            try:
+                self._message_queue.get_nowait()
+                msg_drained += 1
+            except asyncio.QueueEmpty:
+                break
+
+        _logger.debug(f"[AgentSession] Interrupt cleanup done: response_queue drained={drained_count}, message_queue drained={msg_drained}")
 
     async def close(self) -> None:
         """Close the persistent connection."""

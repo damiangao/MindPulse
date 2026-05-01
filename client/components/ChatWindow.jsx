@@ -123,6 +123,7 @@ export function ChatWindow({
   isConnected,
   isLoading,
   onSendMessage,
+  onStopResponse,
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
@@ -151,7 +152,7 @@ export function ChatWindow({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!input.trim() || !chatId || isLoading || !isConnected) return;
+    if (!input.trim() || !chatId || !isConnected) return;
     onSendMessage(input.trim());
     setInput("");
   };
@@ -222,16 +223,29 @@ export function ChatWindow({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={isConnected ? "Type a message..." : "Connecting..."}
-            disabled={!isConnected || isLoading}
+            disabled={!isConnected}
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
           />
-          <button
-            type="submit"
-            disabled={!input.trim() || !isConnected || isLoading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            Send
-          </button>
+          {isLoading ? (
+            <button
+              type="button"
+              onClick={onStopResponse}
+              title="Stop generating"
+              className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center justify-center"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <rect x="1" y="1" width="12" height="12" rx="1.5" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim() || !isConnected}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Send
+            </button>
+          )}
         </form>
       </div>
     </div>

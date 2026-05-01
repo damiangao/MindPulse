@@ -15,7 +15,7 @@ async def test():
     options = ClaudeAgentOptions(
         system_prompt="You are a helpful assistant.",
         max_turns=3,
-        model="glm-5.1",
+        model="MiniMax-M2.7",
         allowed_tools=["Bash", "Read"],
     )
 
