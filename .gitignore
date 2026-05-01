@@ -41,3 +41,6 @@ uv.lock
 # Node (for frontend build)
 node_modules/
 dist/
+
+# Worktrees
+.worktrees/
