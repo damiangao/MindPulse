@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import shutil
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from server._logging import setup_logger
 from server.ai_client import AgentSession
 from server.chat_store import chat_store
+from server.file_storage import get_file_path, save_file
 from server.session import Session
 
 load_dotenv(override=True)
@@ -42,6 +45,11 @@ def get_or_create_session(chat_id: str) -> Session:
     if chat_id not in _sessions:
         _sessions[chat_id] = Session(chat_id)
     return _sessions[chat_id]
+
+
+def get_project_root() -> str:
+    """Get the agent project root directory."""
+    return os.getenv("AGENT_PROJECT_ROOT", ".")
 
 
 @asynccontextmanager
@@ -134,6 +142,30 @@ async def delete_chat(chat_id: str):
 async def get_messages(chat_id: str):
     messages = chat_store.get_messages(chat_id)
     return [m.to_dict() for m in messages]
+
+
+# REST API: Upload file
+@app.post("/api/files/upload")
+async def upload_file(file: UploadFile, chatId: str = Form(...)):
+    project_root = get_project_root()
+    workspace_dir = Path(project_root) / "workspace" / chatId
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    filename = file.filename or "uploaded_file"
+    save_path = workspace_dir / filename
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    relative_path = f"workspace/{chatId}/{filename}"
+    return {"path": relative_path}
+
+
+# REST API: Download file
+@app.get("/api/files/download")
+async def download_file(path: str):
+    project_root = get_project_root()
+    file_path = get_file_path(path, project_root)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, filename=file_path.name)
 
 
 # WebSocket endpoint
