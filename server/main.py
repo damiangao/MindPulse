@@ -5,13 +5,15 @@ import sys
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from server._logging import setup_logger
 from server.ai_client import AgentSession
+from server.auth import decode_token
+from server.auth_routes import router as auth_router
 from server.chat_store import chat_store
 from server.session import Session
 
@@ -45,6 +47,20 @@ def get_or_create_session(chat_id: str, workspace_id: str) -> Session:
     return _sessions[key]
 
 
+def get_current_user(authorization: str = ""):
+    """Extract and verify JWT from Authorization Bearer header. Returns (user_id, workspace_id)."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization[7:]
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Use user_id as workspace_id for account-level isolation
+    return payload["sub"]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
@@ -64,6 +80,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Auth routes (no auth required)
+app.include_router(auth_router)
+
 # Serve static files from client directory
 app.mount("/client", StaticFiles(directory="client"), name="client")
 
@@ -73,10 +92,10 @@ async def root():
     return FileResponse("client/index.html")
 
 
-# REST API: Get all chats
+# REST API: Get all chats (auth required)
 @app.get("/api/chats")
-async def get_chats(x_workspace_id: str = Header(...)):
-    chats = chat_store.get_all_chats(x_workspace_id)
+async def get_chats(user_id: str = Depends(get_current_user)):
+    chats = chat_store.get_all_chats(user_id)
     return [c.to_dict() for c in chats]
 
 
@@ -92,48 +111,48 @@ async def _create_sdk_chat(workspace_id: str, title: str | None = None) -> dict:
     return chat.to_dict()
 
 
-# REST API: Create new chat (legacy, can still be used directly if needed)
+# REST API: Create new chat (auth required)
 @app.post("/api/chats")
-async def create_chat(payload: dict | None = None, x_workspace_id: str = Header(...)):
-    return await _create_sdk_chat(x_workspace_id, payload.get("title") if payload else None)
+async def create_chat(payload: dict | None = None, user_id: str = Depends(get_current_user)):
+    return await _create_sdk_chat(user_id, payload.get("title") if payload else None)
 
 
-# REST API: Initialize a draft chat with SDK session
+# REST API: Initialize a draft chat with SDK session (auth required)
 @app.post("/api/chats/init")
-async def init_chat(payload: dict, x_workspace_id: str = Header(...)):
+async def init_chat(payload: dict, user_id: str = Depends(get_current_user)):
     temp_id = payload.get("tempId")
     if not temp_id:
         raise HTTPException(status_code=400, detail="tempId is required")
 
-    return await _create_sdk_chat(x_workspace_id, payload.get("title") if payload else None)
+    return await _create_sdk_chat(user_id, payload.get("title") if payload else None)
 
 
-# REST API: Get single chat
+# REST API: Get single chat (auth required)
 @app.get("/api/chats/{chat_id}")
-async def get_chat(chat_id: str, x_workspace_id: str = Header(...)):
-    chat = chat_store.get_chat(chat_id, x_workspace_id)
+async def get_chat(chat_id: str, user_id: str = Depends(get_current_user)):
+    chat = chat_store.get_chat(chat_id, user_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat.to_dict()
 
 
-# REST API: Delete chat
+# REST API: Delete chat (auth required)
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat(chat_id: str, x_workspace_id: str = Header(...)):
-    deleted = chat_store.delete_chat(chat_id, x_workspace_id)
+async def delete_chat(chat_id: str, user_id: str = Depends(get_current_user)):
+    deleted = chat_store.delete_chat(chat_id, user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Chat not found")
-    session = _sessions.get((chat_id, x_workspace_id))
+    session = _sessions.get((chat_id, user_id))
     if session:
         await session.close()
-        del _sessions[(chat_id, x_workspace_id)]
+        del _sessions[(chat_id, user_id)]
     return {"success": True}
 
 
-# REST API: Get chat messages
+# REST API: Get chat messages (auth required)
 @app.get("/api/chats/{chat_id}/messages")
-async def get_messages(chat_id: str, x_workspace_id: str = Header(...)):
-    messages = chat_store.get_messages(chat_id, x_workspace_id)
+async def get_messages(chat_id: str, user_id: str = Depends(get_current_user)):
+    messages = chat_store.get_messages(chat_id, user_id)
     return [m.to_dict() for m in messages]
 
 
@@ -150,7 +169,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # State for this connection
     chat_id: str | None = None
-    workspace_id: str | None = None
+    user_id: str | None = None
 
     try:
         while True:
@@ -160,20 +179,39 @@ async def websocket_endpoint(websocket: WebSocket):
                 msg_type = message.get("type")
 
                 if msg_type == "subscribe":
-                    chat_id = message["chatId"]
-                    workspace_id = message.get("workspaceId")
-                    if not workspace_id:
+                    auth_header = message.get("authorization", "")
+                    if not auth_header.startswith("Bearer "):
                         await websocket.send_json({
                             "type": "error",
-                            "error": "workspaceId is required",
+                            "error": "Missing or invalid Authorization header",
                         })
                         continue
-                    session = get_or_create_session(chat_id, workspace_id)
+
+                    token = auth_header[7:]
+                    payload = decode_token(token)
+                    if not payload:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": "Invalid or expired token",
+                        })
+                        continue
+
+                    user_id = payload["sub"]
+                    chat_id = message.get("chatId")
+
+                    if not chat_id:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": "chatId is required",
+                        })
+                        continue
+
+                    session = get_or_create_session(chat_id, user_id)
                     session.subscribe(websocket)
-                    _logger.debug(f"Client subscribed to chat {chat_id} in workspace {workspace_id}")
+                    _logger.debug(f"Client subscribed to chat {chat_id} as user {user_id}")
 
                     # Send existing messages
-                    messages = chat_store.get_messages(chat_id, workspace_id)
+                    messages = chat_store.get_messages(chat_id, user_id)
                     await websocket.send_json({
                         "type": "history",
                         "messages": [m.to_dict() for m in messages],
@@ -181,7 +219,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
 
                 elif msg_type == "chat":
-                    if not chat_id or not workspace_id:
+                    if not chat_id or not user_id:
                         await websocket.send_json({
                             "type": "error",
                             "error": "Must subscribe first",
@@ -189,19 +227,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         continue
                     content = message["content"]
                     _logger.debug(f"[WebSocket] Received chat message for chat_id={chat_id}, content={content[:50]}...")
-                    session = get_or_create_session(chat_id, workspace_id)
+                    session = get_or_create_session(chat_id, user_id)
                     await session.send_message(content)
                     _logger.debug(f"[WebSocket] Finished processing chat message for chat_id={chat_id}")
 
                 elif msg_type == "stop":
-                    if not chat_id or not workspace_id:
+                    if not chat_id or not user_id:
                         await websocket.send_json({
                             "type": "error",
                             "error": "Must subscribe first",
                         })
                         continue
                     _logger.debug(f"[WebSocket] Received stop request for chat_id={chat_id}")
-                    session = get_or_create_session(chat_id, workspace_id)
+                    session = get_or_create_session(chat_id, user_id)
                     await session.stop_response()
                     _logger.debug(f"[WebSocket] Finished processing stop request for chat_id={chat_id}")
 
@@ -223,8 +261,8 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         _logger.info("WebSocket client disconnected")
         # Unsubscribe from all sessions and clean up empty ones
-        if chat_id and workspace_id:
-            key = (chat_id, workspace_id)
+        if chat_id and user_id:
+            key = (chat_id, user_id)
             session = _sessions.get(key)
             if session:
                 still_alive = session.unsubscribe(websocket)

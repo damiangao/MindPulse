@@ -36,10 +36,21 @@ class AgentSession:
     sending follow-up messages without reconnecting.
     """
 
-    def __init__(self, session_id: str | None = None):
+    def __init__(self, session_id: str | None = None, workspace_id: str | None = None):
         self.session_id = session_id
+        self._workspace_id = workspace_id
+
+        # Compute project root: per-account workspace if workspace_id provided
+        if workspace_id:
+            import os
+            project_root = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "workspaces", workspace_id)
+            # Ensure workspace directory exists
+            os.makedirs(project_root, exist_ok=True)
+        else:
+            project_root = PROJECT_ROOT
+
         self._options = ClaudeAgentOptions(
-            cwd=PROJECT_ROOT,
+            cwd=project_root,
             system_prompt=SYSTEM_PROMPT,
             max_turns=100,
             model=DEFAULT_MODEL,

@@ -25,7 +25,7 @@ class Session:
         self.chat_id = chat_id
         self.workspace_id = workspace_id
         self._subscribers: set[WebSocket] = set()
-        self._agent_session = AgentSession(session_id=chat_id)
+        self._agent_session = AgentSession(session_id=chat_id, workspace_id=workspace_id)
         self._response_task: asyncio.Task | None = None
         self._reset_state()
 
