@@ -125,7 +125,6 @@ export function ChatWindow({
   isLoading,
   onSendMessage,
   onStopResponse,
-  onFileUploaded,
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
