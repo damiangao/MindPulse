@@ -16,4 +16,10 @@ def save_file(content: bytes, chat_id: str, filename: str, project_root: str) ->
 
 def get_file_path(relative_path: str, project_root: str) -> Path:
     """Convert relative path to full file path for reading."""
-    return Path(project_root) / relative_path
+    full_path = Path(project_root) / relative_path
+    # Resolve to absolute path and verify it stays within project_root
+    resolved = full_path.resolve()
+    project_root_resolved = Path(project_root).resolve()
+    if not str(resolved).startswith(str(project_root_resolved)):
+        raise ValueError("Path traversal attempt detected")
+    return full_path

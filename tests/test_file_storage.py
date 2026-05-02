@@ -10,7 +10,8 @@ class TestFileStorage:
         result = save_file(content, "chat-123", "test.txt", str(tmp_path))
         full_path = tmp_path / result
         assert os.path.exists(full_path)
-        assert open(full_path, "rb").read() == content
+        with open(full_path, "rb") as f:
+            assert f.read() == content
 
     def test_save_file_returns_relative_path(self, tmp_path):
         from server.file_storage import save_file
