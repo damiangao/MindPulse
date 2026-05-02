@@ -11,7 +11,7 @@ class TestSession:
     @patch("server.session.chat_store")
     def test_subscribe_unsubscribe(self, mock_chat_store, mock_agent_session_cls):
         mock_agent_session_cls.return_value = MagicMock()
-        session = Session("chat-1")
+        session = Session("chat-1", "ws-1")
 
         mock_ws = MagicMock()
         session.subscribe(mock_ws)
@@ -25,7 +25,7 @@ class TestSession:
     @patch("server.session.chat_store")
     async def test_broadcast(self, mock_chat_store, mock_agent_session_cls):
         mock_agent_session_cls.return_value = MagicMock()
-        session = Session("chat-1")
+        session = Session("chat-1", "ws-1")
 
         mock_ws = AsyncMock()
         session.subscribe(mock_ws)
@@ -38,7 +38,7 @@ class TestSession:
     @patch("server.session.chat_store")
     async def test_broadcast_removes_dead_clients(self, mock_chat_store, mock_agent_session_cls):
         mock_agent_session_cls.return_value = MagicMock()
-        session = Session("chat-1")
+        session = Session("chat-1", "ws-1")
 
         mock_ws_alive = AsyncMock()
         mock_ws_dead = AsyncMock()
@@ -59,7 +59,7 @@ class TestSession:
         mock_agent_session = MagicMock()
         mock_agent_session_cls.return_value = mock_agent_session
 
-        session = Session("chat-1")
+        session = Session("chat-1", "ws-1")
 
         mock_ws = AsyncMock()
         session.subscribe(mock_ws)
@@ -92,19 +92,19 @@ class TestSession:
         await session.send_message("Hi there")
 
         # User message should be stored and broadcast
-        mock_chat_store.add_message.assert_called_with("chat-1", "user", "Hi there")
+        mock_chat_store.add_message.assert_called_with("chat-1", "ws-1", "user", "Hi there")
 
         # Wait for background task to complete
         await asyncio.sleep(0.1)
 
         # Assistant message should be stored with accumulated text
-        mock_chat_store.add_message.assert_called_with("chat-1", "assistant", "Hello!")
+        mock_chat_store.add_message.assert_called_with("chat-1", "ws-1", "assistant", "Hello!")
 
     @patch("server.session.AgentSession")
     @patch("server.session.chat_store")
     async def test_broadcast_error(self, mock_chat_store, mock_agent_session_cls):
         mock_agent_session_cls.return_value = MagicMock()
-        session = Session("chat-1")
+        session = Session("chat-1", "ws-1")
 
         mock_ws = AsyncMock()
         session.subscribe(mock_ws)
