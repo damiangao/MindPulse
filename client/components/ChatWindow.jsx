@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { FileUpload } from "./FileUpload";
 
 function ToolUseBlock({ message }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -124,6 +125,7 @@ export function ChatWindow({
   isLoading,
   onSendMessage,
   onStopResponse,
+  onFileUploaded,
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
@@ -149,6 +151,10 @@ export function ChatWindow({
       messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
     }
   }, [messages.length]);
+
+  const handleFileUploaded = useCallback((path, filename) => {
+    onSendMessage(`File uploaded: ${path}`);
+  }, [onSendMessage]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -246,6 +252,7 @@ export function ChatWindow({
               Send
             </button>
           )}
+          <FileUpload chatId={chatId} onFileUploaded={handleFileUploaded} />
         </form>
       </div>
     </div>
