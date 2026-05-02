@@ -5,7 +5,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -34,14 +34,15 @@ for _uvlogger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
 
 _logger = setup_logger("main")
 
-# Session management
-_sessions: dict[str, Session] = {}
+# Session management: (chat_id, workspace_id) -> Session
+_sessions: dict[tuple[str, str], Session] = {}
 
 
-def get_or_create_session(chat_id: str) -> Session:
-    if chat_id not in _sessions:
-        _sessions[chat_id] = Session(chat_id)
-    return _sessions[chat_id]
+def get_or_create_session(chat_id: str, workspace_id: str) -> Session:
+    key = (chat_id, workspace_id)
+    if key not in _sessions:
+        _sessions[key] = Session(chat_id, workspace_id)
+    return _sessions[key]
 
 
 @asynccontextmanager
@@ -74,12 +75,12 @@ async def root():
 
 # REST API: Get all chats
 @app.get("/api/chats")
-async def get_chats():
-    chats = chat_store.get_all_chats()
+async def get_chats(x_workspace_id: str = Header(...)):
+    chats = chat_store.get_all_chats(x_workspace_id)
     return [c.to_dict() for c in chats]
 
 
-async def _create_sdk_chat(title: str | None = None) -> dict:
+async def _create_sdk_chat(workspace_id: str, title: str | None = None) -> dict:
     """Create a new chat by initializing an AgentSession and extracting session_id."""
     agent_session = AgentSession()
     session_id = await agent_session.init()
@@ -87,30 +88,30 @@ async def _create_sdk_chat(title: str | None = None) -> dict:
     if not session_id:
         raise HTTPException(status_code=500, detail="Failed to create chat session")
 
-    chat = chat_store.create_chat(session_id, title)
+    chat = chat_store.create_chat(session_id, workspace_id, title)
     return chat.to_dict()
 
 
 # REST API: Create new chat (legacy, can still be used directly if needed)
 @app.post("/api/chats")
-async def create_chat(payload: dict | None = None):
-    return await _create_sdk_chat(payload.get("title") if payload else None)
+async def create_chat(payload: dict | None = None, x_workspace_id: str = Header(...)):
+    return await _create_sdk_chat(x_workspace_id, payload.get("title") if payload else None)
 
 
 # REST API: Initialize a draft chat with SDK session
 @app.post("/api/chats/init")
-async def init_chat(payload: dict):
+async def init_chat(payload: dict, x_workspace_id: str = Header(...)):
     temp_id = payload.get("tempId")
     if not temp_id:
         raise HTTPException(status_code=400, detail="tempId is required")
 
-    return await _create_sdk_chat(payload.get("title") if payload else None)
+    return await _create_sdk_chat(x_workspace_id, payload.get("title") if payload else None)
 
 
 # REST API: Get single chat
 @app.get("/api/chats/{chat_id}")
-async def get_chat(chat_id: str):
-    chat = chat_store.get_chat(chat_id)
+async def get_chat(chat_id: str, x_workspace_id: str = Header(...)):
+    chat = chat_store.get_chat(chat_id, x_workspace_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     return chat.to_dict()
@@ -118,21 +119,21 @@ async def get_chat(chat_id: str):
 
 # REST API: Delete chat
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat(chat_id: str):
-    deleted = chat_store.delete_chat(chat_id)
+async def delete_chat(chat_id: str, x_workspace_id: str = Header(...)):
+    deleted = chat_store.delete_chat(chat_id, x_workspace_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Chat not found")
-    session = _sessions.get(chat_id)
+    session = _sessions.get((chat_id, x_workspace_id))
     if session:
         await session.close()
-        del _sessions[chat_id]
+        del _sessions[(chat_id, x_workspace_id)]
     return {"success": True}
 
 
 # REST API: Get chat messages
 @app.get("/api/chats/{chat_id}/messages")
-async def get_messages(chat_id: str):
-    messages = chat_store.get_messages(chat_id)
+async def get_messages(chat_id: str, x_workspace_id: str = Header(...)):
+    messages = chat_store.get_messages(chat_id, x_workspace_id)
     return [m.to_dict() for m in messages]
 
 
@@ -147,6 +148,10 @@ async def websocket_endpoint(websocket: WebSocket):
         "message": "Connected to chat server",
     })
 
+    # State for this connection
+    chat_id: str | None = None
+    workspace_id: str | None = None
+
     try:
         while True:
             data = await websocket.receive_text()
@@ -156,12 +161,19 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 if msg_type == "subscribe":
                     chat_id = message["chatId"]
-                    session = get_or_create_session(chat_id)
+                    workspace_id = message.get("workspaceId")
+                    if not workspace_id:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": "workspaceId is required",
+                        })
+                        continue
+                    session = get_or_create_session(chat_id, workspace_id)
                     session.subscribe(websocket)
-                    _logger.debug(f"Client subscribed to chat {chat_id}")
+                    _logger.debug(f"Client subscribed to chat {chat_id} in workspace {workspace_id}")
 
                     # Send existing messages
-                    messages = chat_store.get_messages(chat_id)
+                    messages = chat_store.get_messages(chat_id, workspace_id)
                     await websocket.send_json({
                         "type": "history",
                         "messages": [m.to_dict() for m in messages],
@@ -169,17 +181,27 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
 
                 elif msg_type == "chat":
-                    chat_id = message["chatId"]
+                    if not chat_id or not workspace_id:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": "Must subscribe first",
+                        })
+                        continue
                     content = message["content"]
                     _logger.debug(f"[WebSocket] Received chat message for chat_id={chat_id}, content={content[:50]}...")
-                    session = get_or_create_session(chat_id)
+                    session = get_or_create_session(chat_id, workspace_id)
                     await session.send_message(content)
                     _logger.debug(f"[WebSocket] Finished processing chat message for chat_id={chat_id}")
 
                 elif msg_type == "stop":
-                    chat_id = message["chatId"]
+                    if not chat_id or not workspace_id:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": "Must subscribe first",
+                        })
+                        continue
                     _logger.debug(f"[WebSocket] Received stop request for chat_id={chat_id}")
-                    session = get_or_create_session(chat_id)
+                    session = get_or_create_session(chat_id, workspace_id)
                     await session.stop_response()
                     _logger.debug(f"[WebSocket] Finished processing stop request for chat_id={chat_id}")
 
@@ -201,15 +223,14 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         _logger.info("WebSocket client disconnected")
         # Unsubscribe from all sessions and clean up empty ones
-        dead_sessions: list[str] = []
-        for chat_id, session in _sessions.items():
-            still_alive = session.unsubscribe(websocket)
-            if not still_alive:
-                dead_sessions.append(chat_id)
-        for chat_id in dead_sessions:
-            await _sessions[chat_id].close()
-            del _sessions[chat_id]
-            _logger.info(f"Cleaned up session {chat_id}")
+        if chat_id and workspace_id:
+            key = (chat_id, workspace_id)
+            session = _sessions.get(key)
+            if session:
+                still_alive = session.unsubscribe(websocket)
+                if not still_alive:
+                    _sessions.pop(key, None)
+                    _logger.info(f"Cleaned up session {chat_id}")
 
 
 def main():

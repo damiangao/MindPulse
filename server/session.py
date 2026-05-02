@@ -21,8 +21,9 @@ class Session:
     # Minimum accumulated characters before broadcasting a delta
     _DELTA_BUFFER_SIZE = 20
 
-    def __init__(self, chat_id: str):
+    def __init__(self, chat_id: str, workspace_id: str):
         self.chat_id = chat_id
+        self.workspace_id = workspace_id
         self._subscribers: set[WebSocket] = set()
         self._agent_session = AgentSession(session_id=chat_id)
         self._response_task: asyncio.Task | None = None
@@ -69,7 +70,7 @@ class Session:
             _logger.debug(f"[Session {self.chat_id}] _process_response finally block, current_response_text length={len(self._current_response_text)}")
             # Only persist complete assistant messages (not when cancelled)
             if self._current_response_text:
-                chat_store.add_message(self.chat_id, "assistant", self._current_response_text)
+                chat_store.add_message(self.chat_id, self.workspace_id, "assistant", self._current_response_text)
                 _logger.debug(f"[Session {self.chat_id}] Persisted assistant message, length={len(self._current_response_text)}")
             else:
                 _logger.debug(f"[Session {self.chat_id}] No assistant text to persist")
@@ -240,7 +241,7 @@ class Session:
             _logger.debug(f"[Session {self.chat_id}] Old task cancelled and drained")
 
         # Store user message
-        chat_store.add_message(self.chat_id, "user", content)
+        chat_store.add_message(self.chat_id, self.workspace_id, "user", content)
 
         # Broadcast user message
         await self._broadcast(
