@@ -3,6 +3,21 @@ from typing import Literal
 
 
 @dataclass
+class User:
+    id: str
+    email: str
+    password_hash: str
+    created_at: str
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "email": self.email,
+            "createdAt": self.created_at,
+        }
+
+
+@dataclass
 class Chat:
     id: str
     workspace_id: str
