@@ -1,24 +1,17 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useCallback } from "react";
 
 const API_BASE = "/api";
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+/**
+ * @param {{ chatId: string, onFileUploaded: (path: string, name: string) => void }} props
+ */
 export function FileUpload({ chatId, onFileUploaded }) {
   const fileInputRef = useRef(null);
   const [isUploading, setIsUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
-  const handleFileSelect = async (files) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    if (file.size > MAX_FILE_SIZE) {
-      alert(`File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB`);
-      return;
-    }
-    await uploadFile(file);
-  };
-
-  const uploadFile = async (file) => {
+  const uploadFile = useCallback(async (file) => {
     setIsUploading(true);
     try {
       const formData = new FormData();
@@ -37,23 +30,33 @@ export function FileUpload({ chatId, onFileUploaded }) {
     } finally {
       setIsUploading(false);
     }
-  };
+  }, [chatId, onFileUploaded]);
 
-  const handleDrop = (e) => {
+  const handleFileSelect = useCallback(async (files) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (file.size > MAX_FILE_SIZE) {
+      alert(`File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+      return;
+    }
+    await uploadFile(file);
+  }, [uploadFile]);
+
+  const handleDrop = useCallback((e) => {
     e.preventDefault();
     setDragOver(false);
     handleFileSelect(e.dataTransfer.files);
-  };
+  }, [handleFileSelect]);
 
-  const handleDragOver = (e) => {
+  const handleDragOver = useCallback((e) => {
     e.preventDefault();
     setDragOver(true);
-  };
+  }, []);
 
-  const handleDragLeave = (e) => {
+  const handleDragLeave = useCallback((e) => {
     e.preventDefault();
     setDragOver(false);
-  };
+  }, []);
 
   return (
     <div
