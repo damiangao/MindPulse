@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import shutil
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -148,13 +147,8 @@ async def get_messages(chat_id: str):
 @app.post("/api/files/upload")
 async def upload_file(file: UploadFile, chatId: str = Form(...)):
     project_root = get_project_root()
-    workspace_dir = Path(project_root) / "workspace" / chatId
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    filename = file.filename or "uploaded_file"
-    save_path = workspace_dir / filename
-    with open(save_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    relative_path = f"workspace/{chatId}/{filename}"
+    content = await file.read()
+    relative_path = save_file(content, chatId, file.filename or "uploaded_file", project_root)
     return {"path": relative_path}
 
 
