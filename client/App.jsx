@@ -5,6 +5,18 @@ import { ChatWindow } from "./components/ChatWindow";
 const API_BASE = "/api";
 const WS_URL = `ws://${window.location.host}/ws`;
 
+// Get or create workspace ID (persisted in localStorage)
+function getWorkspaceId() {
+  let wid = localStorage.getItem("workspace_id");
+  if (!wid) {
+    wid = crypto.randomUUID();
+    localStorage.setItem("workspace_id", wid);
+  }
+  return wid;
+}
+
+const WORKSPACE_ID = getWorkspaceId();
+
 export default function App() {
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
@@ -32,7 +44,7 @@ export default function App() {
       // Re-subscribe to current chat if any
       const currentChatId = selectedChatIdRef.current;
       if (currentChatId) {
-        ws.send(JSON.stringify({ type: "subscribe", chatId: currentChatId }));
+        ws.send(JSON.stringify({ type: "subscribe", chatId: currentChatId, workspaceId: WORKSPACE_ID }));
       }
     };
 
@@ -231,7 +243,9 @@ export default function App() {
   // Fetch all chats
   const fetchChats = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/chats`);
+      const res = await fetch(`${API_BASE}/chats`, {
+        headers: { "X-Workspace-ID": WORKSPACE_ID },
+      });
       const data = await res.json();
       setChats(data);
     } catch (error) {
@@ -264,7 +278,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/chats/init`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Workspace-ID": WORKSPACE_ID,
+        },
         body: JSON.stringify({ tempId: chatId }),
       });
       const data = await res.json();
@@ -300,7 +317,10 @@ export default function App() {
   // Delete chat
   const deleteChat = async (chatId) => {
     try {
-      await fetch(`${API_BASE}/chats/${chatId}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/chats/${chatId}`, {
+        method: "DELETE",
+        headers: { "X-Workspace-ID": WORKSPACE_ID },
+      });
       setChats((prev) => prev.filter((c) => c.id !== chatId));
       if (selectedChatId === chatId) {
         setSelectedChatId(null);
@@ -315,7 +335,7 @@ export default function App() {
   useEffect(() => {
     selectedChatIdRef.current = selectedChatId;
     if (selectedChatId && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "subscribe", chatId: selectedChatId }));
+      wsRef.current.send(JSON.stringify({ type: "subscribe", chatId: selectedChatId, workspaceId: WORKSPACE_ID }));
     }
   }, [selectedChatId]);
 
