@@ -1,6 +1,6 @@
 import os
-import tempfile
 import shutil
+import tempfile
 from unittest.mock import patch
 
 import pytest
@@ -114,7 +114,7 @@ class TestChatStore:
 
     def test_add_message_auto_title_truncation(self):
         store = ChatStore()
-        chat = store.create_chat("chat-1", "ws-1")
+        store.create_chat("chat-1", "ws-1")
 
         long_content = "a" * 100
         store.add_message("chat-1", "ws-1", "user", long_content)

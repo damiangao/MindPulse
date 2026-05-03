@@ -8,7 +8,7 @@ from typing import Any
 import bcrypt
 import jwt
 
-JWT_SECRET = os.getenv("JWT_SECRET", "change-this-in-production")
+JWT_SECRET = os.getenv("JWT_SECRET", "change-this-in-production-use-a-32-byte-minimum-secret-here")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
 

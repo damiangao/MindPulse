@@ -12,8 +12,10 @@ def client():
 
 
 @pytest.fixture
-def workspace_header():
-    return {"X-Workspace-ID": "test-workspace-123"}
+def auth_headers():
+    from tests.test_auth import auth_header
+
+    return auth_header()
 
 
 class TestRoot:
@@ -25,15 +27,27 @@ class TestRoot:
 
 class TestChatsAPI:
     @patch("server.main.chat_store")
-    def test_get_chats(self, mock_chat_store, client, workspace_header):
+    def test_get_chats(self, mock_chat_store, client, auth_headers):
         from server.models import Chat
 
         mock_chat_store.get_all_chats.return_value = [
-            Chat(id="chat-1", workspace_id="test-workspace-123", title="First", created_at="2024-01-01", updated_at="2024-01-02"),
-            Chat(id="chat-2", workspace_id="test-workspace-123", title="Second", created_at="2024-01-03", updated_at="2024-01-04"),
+            Chat(
+                id="chat-1",
+                workspace_id="test-user-123",
+                title="First",
+                created_at="2024-01-01",
+                updated_at="2024-01-02",
+            ),
+            Chat(
+                id="chat-2",
+                workspace_id="test-user-123",
+                title="Second",
+                created_at="2024-01-03",
+                updated_at="2024-01-04",
+            ),
         ]
 
-        response = client.get("/api/chats", headers=workspace_header)
+        response = client.get("/api/chats", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -42,42 +56,42 @@ class TestChatsAPI:
         assert data[0]["title"] == "First"
 
     @patch("server.main._create_sdk_chat")
-    def test_create_chat(self, mock_create, client, workspace_header):
+    def test_create_chat(self, mock_create, client, auth_headers):
         mock_create.return_value = {
             "id": "chat-1",
-            "workspaceId": "test-workspace-123",
+            "workspaceId": "test-user-123",
             "title": "New Chat",
             "createdAt": "2024-01-01",
             "updatedAt": "2024-01-01",
         }
 
-        response = client.post("/api/chats", json={"title": "Test"}, headers=workspace_header)
+        response = client.post("/api/chats", json={"title": "Test"}, headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == "chat-1"
-        mock_create.assert_awaited_once_with("test-workspace-123", "Test")
+        mock_create.assert_awaited_once_with("test-user-123", "Test")
 
     @patch("server.main._create_sdk_chat")
-    def test_init_chat(self, mock_create, client, workspace_header):
+    def test_init_chat(self, mock_create, client, auth_headers):
         mock_create.return_value = {
             "id": "chat-1",
-            "workspaceId": "test-workspace-123",
+            "workspaceId": "test-user-123",
             "title": "New Chat",
             "createdAt": "2024-01-01",
             "updatedAt": "2024-01-01",
         }
 
-        response = client.post("/api/chats/init", json={"tempId": "temp-123"}, headers=workspace_header)
+        response = client.post("/api/chats/init", json={"tempId": "temp-123"}, headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == "chat-1"
-        mock_create.assert_awaited_once_with("test-workspace-123", None)
+        mock_create.assert_awaited_once_with("test-user-123", None)
 
     @patch("server.main._create_sdk_chat")
-    def test_init_chat_missing_temp_id(self, mock_create, client, workspace_header):
-        response = client.post("/api/chats/init", json={}, headers=workspace_header)
+    def test_init_chat_missing_temp_id(self, mock_create, client, auth_headers):
+        response = client.post("/api/chats/init", json={}, headers=auth_headers)
 
         assert response.status_code == 400
         data = response.json()
@@ -85,14 +99,18 @@ class TestChatsAPI:
         mock_create.assert_not_called()
 
     @patch("server.main.chat_store")
-    def test_get_chat(self, mock_chat_store, client, workspace_header):
+    def test_get_chat(self, mock_chat_store, client, auth_headers):
         from server.models import Chat
 
         mock_chat_store.get_chat.return_value = Chat(
-            id="chat-1", workspace_id="test-workspace-123", title="Test", created_at="2024-01-01", updated_at="2024-01-01"
+            id="chat-1",
+            workspace_id="test-user-123",
+            title="Test",
+            created_at="2024-01-01",
+            updated_at="2024-01-01",
         )
 
-        response = client.get("/api/chats/chat-1", headers=workspace_header)
+        response = client.get("/api/chats/chat-1", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -100,42 +118,42 @@ class TestChatsAPI:
         assert data["title"] == "Test"
 
     @patch("server.main.chat_store")
-    def test_get_chat_not_found(self, mock_chat_store, client, workspace_header):
+    def test_get_chat_not_found(self, mock_chat_store, client, auth_headers):
         mock_chat_store.get_chat.return_value = None
 
-        response = client.get("/api/chats/nonexistent", headers=workspace_header)
+        response = client.get("/api/chats/nonexistent", headers=auth_headers)
 
         assert response.status_code == 404
         assert "Chat not found" in response.json()["detail"]
 
     @patch("server.main.chat_store")
     @patch("server.main._sessions", {})
-    def test_delete_chat(self, mock_chat_store, client, workspace_header):
+    def test_delete_chat(self, mock_chat_store, client, auth_headers):
         mock_chat_store.delete_chat.return_value = True
 
-        response = client.delete("/api/chats/chat-1", headers=workspace_header)
+        response = client.delete("/api/chats/chat-1", headers=auth_headers)
 
         assert response.status_code == 200
         assert response.json()["success"] is True
 
     @patch("server.main.chat_store")
-    def test_delete_chat_not_found(self, mock_chat_store, client, workspace_header):
+    def test_delete_chat_not_found(self, mock_chat_store, client, auth_headers):
         mock_chat_store.delete_chat.return_value = False
 
-        response = client.delete("/api/chats/nonexistent", headers=workspace_header)
+        response = client.delete("/api/chats/nonexistent", headers=auth_headers)
 
         assert response.status_code == 404
         assert "Chat not found" in response.json()["detail"]
 
     @patch("server.main.chat_store")
-    def test_get_messages(self, mock_chat_store, client, workspace_header):
+    def test_get_messages(self, mock_chat_store, client, auth_headers):
         from server.models import ChatMessage
 
         mock_chat_store.get_messages.return_value = [
             ChatMessage(
                 id="msg-1",
                 chat_id="chat-1",
-                workspace_id="test-workspace-123",
+                workspace_id="test-user-123",
                 role="user",
                 content="Hello",
                 timestamp="2024-01-01",
@@ -143,20 +161,25 @@ class TestChatsAPI:
             ChatMessage(
                 id="msg-2",
                 chat_id="chat-1",
-                workspace_id="test-workspace-123",
+                workspace_id="test-user-123",
                 role="assistant",
                 content="Hi there",
                 timestamp="2024-01-02",
             ),
         ]
 
-        response = client.get("/api/chats/chat-1/messages", headers=workspace_header)
+        response = client.get("/api/chats/chat-1/messages", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 2
         assert data[0]["role"] == "user"
         assert data[1]["role"] == "assistant"
+
+    def test_get_chats_unauthorized(self, client):
+        response = client.get("/api/chats")
+        # Missing required header returns 422 (FastAPI validation), no auth returns 401
+        assert response.status_code in (401, 422)
 
 
 class TestWebSocket:
@@ -168,20 +191,27 @@ class TestWebSocket:
         mock_chat_store.get_messages.return_value = []
 
         with client.websocket_connect("/ws") as ws:
-            # Receive connected message
             msg = ws.receive_json()
             assert msg["type"] == "connected"
 
-            # Subscribe to a chat with workspaceId
-            ws.send_json({"type": "subscribe", "chatId": "chat-1", "workspaceId": "ws-1"})
+            # Subscribe with authorization header
+            from tests.test_auth import make_test_token
 
-            # Receive history
+            token = make_test_token()
+            ws.send_json(
+                {
+                    "type": "subscribe",
+                    "chatId": "chat-1",
+                    "authorization": f"Bearer {token}",
+                }
+            )
+
             msg = ws.receive_json()
             assert msg["type"] == "history"
             assert msg["chatId"] == "chat-1"
 
             mock_session.subscribe.assert_called_once()
-            mock_get_session.assert_called_once_with("chat-1", "ws-1")
+            mock_get_session.assert_called_once_with("chat-1", "test-user-123")
 
     @patch("server.main.get_or_create_session")
     def test_websocket_chat(self, mock_get_session, client):
@@ -190,18 +220,23 @@ class TestWebSocket:
         mock_get_session.return_value = mock_session
 
         with client.websocket_connect("/ws") as ws:
-            # Receive connected message
             msg = ws.receive_json()
             assert msg["type"] == "connected"
 
-            # Subscribe first
-            ws.send_json({"type": "subscribe", "chatId": "chat-1", "workspaceId": "ws-1"})
+            from tests.test_auth import make_test_token
+
+            token = make_test_token()
+            ws.send_json(
+                {
+                    "type": "subscribe",
+                    "chatId": "chat-1",
+                    "authorization": f"Bearer {token}",
+                }
+            )
             ws.receive_json()  # history
 
-            # Send a chat message
             ws.send_json({"type": "chat", "chatId": "chat-1", "content": "Hello"})
 
-            # Wait a bit for async processing
             import asyncio
 
             asyncio.run(asyncio.sleep(0.1))
@@ -210,13 +245,165 @@ class TestWebSocket:
 
     def test_websocket_invalid_json(self, client):
         with client.websocket_connect("/ws") as ws:
-            # Receive connected message
             msg = ws.receive_json()
             assert msg["type"] == "connected"
 
-            # Send invalid JSON
             ws.send_text("not json")
 
             msg = ws.receive_json()
             assert msg["type"] == "error"
             assert "Invalid message format" in msg["error"]
+
+    def test_websocket_subscribe_without_auth(self, client):
+        with client.websocket_connect("/ws") as ws:
+            msg = ws.receive_json()
+            assert msg["type"] == "connected"
+
+            ws.send_json({"type": "subscribe", "chatId": "chat-1"})
+
+            msg = ws.receive_json()
+            assert msg["type"] == "error"
+            assert "Authorization" in msg["error"]
+
+
+class TestAuth:
+    def test_register_success(self, client):
+        response = client.post(
+            "/api/auth/register",
+            json={
+                "email": "new@example.com",
+                "password": "password123",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "token" in data
+        assert "user" in data
+        assert data["user"]["email"] == "new@example.com"
+
+    def test_register_duplicate_email(self, client):
+        # First register
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "dup@example.com",
+                "password": "password123",
+            },
+        )
+
+        # Try again with same email
+        response = client.post(
+            "/api/auth/register",
+            json={
+                "email": "dup@example.com",
+                "password": "password456",
+            },
+        )
+
+        assert response.status_code == 409
+        assert "already registered" in response.json()["detail"]
+
+    def test_register_invalid_email(self, client):
+        response = client.post(
+            "/api/auth/register",
+            json={
+                "email": "not-an-email",
+                "password": "password123",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "email" in response.json()["detail"]
+
+    def test_register_short_password(self, client):
+        response = client.post(
+            "/api/auth/register",
+            json={
+                "email": "test@example.com",
+                "password": "12345",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "Password" in response.json()["detail"]
+
+    def test_login_success(self, client):
+        # Register first
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "login@example.com",
+                "password": "password123",
+            },
+        )
+
+        # Login
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "login@example.com",
+                "password": "password123",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "token" in data
+        assert data["user"]["email"] == "login@example.com"
+
+    def test_login_wrong_password(self, client):
+        # Register first
+        client.post(
+            "/api/auth/register",
+            json={
+                "email": "wrong@example.com",
+                "password": "password123",
+            },
+        )
+
+        # Login with wrong password
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "wrong@example.com",
+                "password": "wrongpassword",
+            },
+        )
+
+        assert response.status_code == 401
+        assert "Invalid email or password" in response.json()["detail"]
+
+    def test_login_nonexistent_user(self, client):
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "nonexistent@example.com",
+                "password": "password123",
+            },
+        )
+
+        assert response.status_code == 401
+        assert "Invalid email or password" in response.json()["detail"]
+
+    def test_me_success(self, client):
+        # Register and get token
+        reg_response = client.post(
+            "/api/auth/register",
+            json={
+                "email": "me@example.com",
+                "password": "password123",
+            },
+        )
+        token = reg_response.json()["token"]
+
+        # Get current user
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+        assert response.status_code == 200
+        assert response.json()["email"] == "me@example.com"
+
+    def test_me_invalid_token(self, client):
+        response = client.get("/api/auth/me", headers={"Authorization": "Bearer invalid-token"})
+
+        assert response.status_code == 401

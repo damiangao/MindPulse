@@ -6,7 +6,13 @@ from __future__ import annotations
 import asyncio
 import json
 
-from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, TextBlock, ThinkingBlock
+from claude_agent_sdk import (
+    AssistantMessage,
+    ResultMessage,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
+)
 from claude_agent_sdk.types import StreamEvent
 from fastapi import WebSocket
 
@@ -47,9 +53,13 @@ class Session:
             async for message in self._agent_session.send_message(content):
                 msg_count += 1
                 msg_type = type(message).__name__
-                _logger.debug(f"[Session {self.chat_id}] Processing SDK message #{msg_count}: {msg_type}")
+                _logger.debug(
+                    f"[Session {self.chat_id}] Processing SDK message #{msg_count}: {msg_type}"
+                )
                 await self._handle_sdk_message(message)
-            _logger.debug(f"[Session {self.chat_id}] Finished iterating SDK messages, total={msg_count}")
+            _logger.debug(
+                f"[Session {self.chat_id}] Finished iterating SDK messages, total={msg_count}"
+            )
             # Flush any remaining pending deltas
             await self._flush_pending_deltas()
         except asyncio.CancelledError:
@@ -67,11 +77,19 @@ class Session:
             _logger.debug(f"[Session {self.chat_id}] Error in _process_response: {e}")
             await self._broadcast_error(str(e))
         finally:
-            _logger.debug(f"[Session {self.chat_id}] _process_response finally block, current_response_text length={len(self._current_response_text)}")
+            _logger.debug(
+                f"[Session {self.chat_id}] _process_response finally block, "
+                f"current_response_text length={len(self._current_response_text)}"
+            )
             # Only persist complete assistant messages (not when cancelled)
             if self._current_response_text:
-                chat_store.add_message(self.chat_id, self.workspace_id, "assistant", self._current_response_text)
-                _logger.debug(f"[Session {self.chat_id}] Persisted assistant message, length={len(self._current_response_text)}")
+                chat_store.add_message(
+                    self.chat_id, self.workspace_id, "assistant", self._current_response_text
+                )
+                _logger.debug(
+                    f"[Session {self.chat_id}] Persisted assistant message, "
+                    f"length={len(self._current_response_text)}"
+                )
             else:
                 _logger.debug(f"[Session {self.chat_id}] No assistant text to persist")
             self._reset_state()
@@ -178,17 +196,28 @@ class Session:
                     self._current_tool_input = ""
 
         elif isinstance(message, AssistantMessage):
-            _logger.debug(f"[Session {self.chat_id}] AssistantMessage received: content={message.content!r}, model={message.model}")
+            _logger.debug(
+                f"[Session {self.chat_id}] AssistantMessage received: "
+                f"content={message.content!r}, model={message.model}"
+            )
             for block in message.content:
                 if isinstance(block, TextBlock) and block.text:
                     _logger.debug(f"[Session {self.chat_id}]   TextBlock.text = {block.text!r}")
                     await self._accumulate_and_maybe_broadcast(
-                        block.text, "_current_response_text", "_pending_text_delta", "assistant_delta",
+                        block.text,
+                        "_current_response_text",
+                        "_pending_text_delta",
+                        "assistant_delta",
                     )
                 elif isinstance(block, ThinkingBlock) and block.thinking:
-                    _logger.debug(f"[Session {self.chat_id}]   ThinkingBlock.thinking = {block.thinking!r}")
+                    _logger.debug(
+                        f"[Session {self.chat_id}]   ThinkingBlock.thinking = {block.thinking!r}"
+                    )
                     await self._accumulate_and_maybe_broadcast(
-                        block.thinking, "_current_response_thinking", "_pending_thinking_delta", "thinking_delta",
+                        block.thinking,
+                        "_current_response_thinking",
+                        "_pending_thinking_delta",
+                        "thinking_delta",
                     )
 
         elif isinstance(message, ResultMessage):
@@ -255,7 +284,9 @@ class Session:
         # Send to agent and process response
         _logger.debug(f"[Session {self.chat_id}] Starting new response task for: {content[:50]}...")
         self._response_task = asyncio.create_task(self._process_response(content))
-        _logger.debug(f"[Session {self.chat_id}] Response task created, task_id={id(self._response_task)}")
+        _logger.debug(
+            f"[Session {self.chat_id}] Response task created, task_id={id(self._response_task)}"
+        )
 
     def subscribe(self, client: WebSocket):
         self._subscribers.add(client)

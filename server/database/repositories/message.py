@@ -30,9 +30,7 @@ class MessageRepository:
         ensure_workspace(self._conn, self._workspace_id)
         self._conn.commit()
 
-    def add_message(
-        self, chat_id: str, role: str, content: str
-    ) -> ChatMessage:
+    def add_message(self, chat_id: str, role: str, content: str) -> ChatMessage:
         """Add a message to a chat.
 
         Args:

@@ -5,7 +5,7 @@ import sys
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,10 +27,12 @@ for _uvlogger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
     _uvlog = logging.getLogger(_uvlogger_name)
     _uvlog.handlers.clear()
     _uvconsole = logging.StreamHandler(sys.stderr)
-    _uvconsole.setFormatter(logging.Formatter(
-        f"%(asctime)s [%(process)d] %(levelname)s: %(message)s",
-        datefmt=LOG_TIMESTAMP_FORMAT,
-    ))
+    _uvconsole.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(process)d] %(levelname)s: %(message)s",
+            datefmt=LOG_TIMESTAMP_FORMAT,
+        )
+    )
     _uvlog.addHandler(_uvconsole)
     _uvlog.setLevel(logging.INFO)
 
@@ -47,8 +49,8 @@ def get_or_create_session(chat_id: str, workspace_id: str) -> Session:
     return _sessions[key]
 
 
-def get_current_user(authorization: str = ""):
-    """Extract and verify JWT from Authorization Bearer header. Returns (user_id, workspace_id)."""
+def get_current_user(authorization: str = Header(...)):
+    """Extract and verify JWT from Authorization Bearer header. Returns user_id."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
@@ -162,10 +164,12 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     _logger.info("WebSocket client connected")
 
-    await websocket.send_json({
-        "type": "connected",
-        "message": "Connected to chat server",
-    })
+    await websocket.send_json(
+        {
+            "type": "connected",
+            "message": "Connected to chat server",
+        }
+    )
 
     # State for this connection
     chat_id: str | None = None
@@ -181,29 +185,35 @@ async def websocket_endpoint(websocket: WebSocket):
                 if msg_type == "subscribe":
                     auth_header = message.get("authorization", "")
                     if not auth_header.startswith("Bearer "):
-                        await websocket.send_json({
-                            "type": "error",
-                            "error": "Missing or invalid Authorization header",
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "error": "Missing or invalid Authorization header",
+                            }
+                        )
                         continue
 
                     token = auth_header[7:]
                     payload = decode_token(token)
                     if not payload:
-                        await websocket.send_json({
-                            "type": "error",
-                            "error": "Invalid or expired token",
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "error": "Invalid or expired token",
+                            }
+                        )
                         continue
 
                     user_id = payload["sub"]
                     chat_id = message.get("chatId")
 
                     if not chat_id:
-                        await websocket.send_json({
-                            "type": "error",
-                            "error": "chatId is required",
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "error": "chatId is required",
+                            }
+                        )
                         continue
 
                     session = get_or_create_session(chat_id, user_id)
@@ -212,51 +222,68 @@ async def websocket_endpoint(websocket: WebSocket):
 
                     # Send existing messages
                     messages = chat_store.get_messages(chat_id, user_id)
-                    await websocket.send_json({
-                        "type": "history",
-                        "messages": [m.to_dict() for m in messages],
-                        "chatId": chat_id,
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "history",
+                            "messages": [m.to_dict() for m in messages],
+                            "chatId": chat_id,
+                        }
+                    )
 
                 elif msg_type == "chat":
                     if not chat_id or not user_id:
-                        await websocket.send_json({
-                            "type": "error",
-                            "error": "Must subscribe first",
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "error": "Must subscribe first",
+                            }
+                        )
                         continue
                     content = message["content"]
-                    _logger.debug(f"[WebSocket] Received chat message for chat_id={chat_id}, content={content[:50]}...")
+                    _logger.debug(
+                        f"[WebSocket] Received chat message for chat_id={chat_id}, "
+                        f"content={content[:50]}..."
+                    )
                     session = get_or_create_session(chat_id, user_id)
                     await session.send_message(content)
-                    _logger.debug(f"[WebSocket] Finished processing chat message for chat_id={chat_id}")
+                    _logger.debug(
+                        f"[WebSocket] Finished processing chat message for chat_id={chat_id}"
+                    )
 
                 elif msg_type == "stop":
                     if not chat_id or not user_id:
-                        await websocket.send_json({
-                            "type": "error",
-                            "error": "Must subscribe first",
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "error": "Must subscribe first",
+                            }
+                        )
                         continue
                     _logger.debug(f"[WebSocket] Received stop request for chat_id={chat_id}")
                     session = get_or_create_session(chat_id, user_id)
                     await session.stop_response()
-                    _logger.debug(f"[WebSocket] Finished processing stop request for chat_id={chat_id}")
+                    _logger.debug(
+                        f"[WebSocket] Finished processing stop request for chat_id={chat_id}"
+                    )
 
                 else:
                     _logger.warning(f"Unknown message type: {msg_type}")
 
             except json.JSONDecodeError:
-                await websocket.send_json({
-                    "type": "error",
-                    "error": "Invalid message format",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "error": "Invalid message format",
+                    }
+                )
             except Exception as e:
                 _logger.error(f"Error handling WebSocket message: {e}")
-                await websocket.send_json({
-                    "type": "error",
-                    "error": str(e),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "error": str(e),
+                    }
+                )
 
     except WebSocketDisconnect:
         _logger.info("WebSocket client disconnected")

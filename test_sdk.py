@@ -2,7 +2,6 @@
 """Test script to verify Claude Agent SDK works."""
 
 import asyncio
-import os
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from dotenv import load_dotenv

@@ -1,7 +1,6 @@
 """Tests for ChatRepository."""
 
 
-
 class TestChatRepository:
     """Test cases for ChatRepository."""
 

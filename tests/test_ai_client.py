@@ -3,9 +3,7 @@
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
-from server.ai_client import AgentSession, DEFAULT_MODEL, SYSTEM_PROMPT
+from server.ai_client import DEFAULT_MODEL, SYSTEM_PROMPT, AgentSession
 
 
 class TestAgentSession:
@@ -159,7 +157,9 @@ class TestAgentSession:
         await session.connect()
 
         # Put some stale messages in queues
-        await session._message_queue.put({"type": "user", "message": {"role": "user", "content": "stale"}})
+        await session._message_queue.put(
+            {"type": "user", "message": {"role": "user", "content": "stale"}}
+        )
         await session._response_queue.put("stale")
 
         await session.interrupt()

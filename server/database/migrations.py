@@ -39,9 +39,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             workspace_id TEXT NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
-            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE,
-            FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
@@ -51,7 +49,9 @@ def init_schema(conn: sqlite3.Connection) -> None:
     """)
 
 
-def ensure_workspace(conn: sqlite3.Connection, workspace_id: str, owner_id: str | None = None) -> None:
+def ensure_workspace(
+    conn: sqlite3.Connection, workspace_id: str, owner_id: str | None = None
+) -> None:
     """Ensure a workspace record exists, creating if necessary.
 
     Args:

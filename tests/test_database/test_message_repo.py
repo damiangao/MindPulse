@@ -1,7 +1,6 @@
 """Tests for MessageRepository."""
 
 
-
 class TestMessageRepository:
     """Test cases for MessageRepository."""
 

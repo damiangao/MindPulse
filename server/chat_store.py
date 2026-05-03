@@ -3,6 +3,7 @@
 from server.database.connection import get_workspace_db
 from server.database.repositories.chat import ChatRepository
 from server.database.repositories.message import MessageRepository
+from server.models import Chat, ChatMessage
 
 
 class ChatStore:

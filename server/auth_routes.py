@@ -1,9 +1,8 @@
 """Authentication routes: register and login."""
 
-import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 
 from server.auth import create_token, decode_token, generate_user_id, hash_password, verify_password
 from server.database.connection import get_workspace_db
@@ -101,7 +100,7 @@ async def login(payload: dict):
 
 
 @router.get("/me")
-async def me(authorization: str = ""):
+async def me(authorization: str = Header(...)):
     """Get current user info from Bearer token in Authorization header."""
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
