@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Shared logging utilities."""
 
-from datetime import datetime
 import logging
 import os
 import sys
+from datetime import datetime
 from logging.handlers import WatchedFileHandler
 
 

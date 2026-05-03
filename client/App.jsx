@@ -6,12 +6,207 @@ const API_BASE = "/api";
 const WS_URL = `ws://${window.location.host}/ws`;
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  // Draft chat: current unsaved chat, not shown in sidebar
+  const [draftChat, setDraftChat] = useState(null);
+  const [loginError, setLoginError] = useState("");
+
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const fetchedRef = useRef(false);
+  const selectedChatIdRef = useRef(null);
+  const loadingRef = useRef(false);
+
+  // Check for existing token on mount
+  useEffect(() => {
+    const savedToken = localStorage.getItem("auth_token");
+    if (savedToken) {
+      validateToken(savedToken);
+    } else {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const validateToken = async (t) => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      if (res.ok) {
+        const userData = await res.json();
+        setToken(t);
+        setUser(userData);
+        localStorage.setItem("auth_token", t);
+      } else {
+        localStorage.removeItem("auth_token");
+      }
+    } catch (e) {
+      localStorage.removeItem("auth_token");
+    }
+    setAuthLoading(false);
+  };
+
+  const login = async (email, password) => {
+    setLoginError("");
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setToken(data.token);
+        setUser(data.user);
+        localStorage.setItem("auth_token", data.token);
+      } else {
+        setLoginError(data.detail || "Login failed");
+      }
+    } catch (e) {
+      setLoginError("Network error");
+    }
+  };
+
+  const register = async (email, password) => {
+    setLoginError("");
+    try {
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setToken(data.token);
+        setUser(data.user);
+        localStorage.setItem("auth_token", data.token);
+      } else {
+        setLoginError(data.detail || "Registration failed");
+      }
+    } catch (e) {
+      setLoginError("Network error");
+    }
+  };
+
+  const logout = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem("auth_token");
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+  };
+
+  const fetchChats = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/chats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setChats(data);
+    } catch (error) {
+      console.error("Failed to fetch chats:", error);
+    }
+  }, [token]);
+
+  // Fetch chats when logged in
+  useEffect(() => {
+    if (user && token && !fetchedRef.current) {
+      fetchedRef.current = true;
+      fetchChats();
+    }
+  }, [user, token, fetchChats]);
+
+  // Auth check passed - render main app
+  if (!authLoading && user) {
+    return <ChatApp user={user} token={token} logout={logout} chats={chats} setChats={setChats} fetchChats={fetchChats} />;
+  }
+
+  // Loading
+  if (authLoading) {
+    return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  }
+
+  // Not logged in - show auth form
+  return <AuthForm onLogin={login} onRegister={register} error={loginError} />;
+}
+
+function AuthForm({ onLogin, onRegister, error }) {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (isLogin) {
+      onLogin(email, password);
+    } else {
+      onRegister(email, password);
+    }
+  };
+
+  return (
+    <div className="flex h-screen items-center justify-center bg-gray-100">
+      <div className="w-80 rounded bg-white p-6 shadow">
+        <h1 className="mb-4 text-2xl font-bold">{isLogin ? "Login" : "Register"}</h1>
+        {error && <p className="mb-4 text-red-500">{error}</p>}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded border p-2"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded border p-2"
+              required
+              minLength={6}
+            />
+          </div>
+          <button type="submit" className="w-full rounded bg-blue-500 p-2 text-white">
+            {isLogin ? "Login" : "Register"}
+          </button>
+        </form>
+        <p className="mt-4 text-center text-sm">
+          {isLogin ? "Don't have an account? " : "Already have an account? "}
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setEmail("");
+              setPassword("");
+            }}
+            className="text-blue-500"
+          >
+            {isLogin ? "Register" : "Login"}
+          </button>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const [draftChat, setDraftChat] = useState(null);
 
   const wsRef = useRef(null);
@@ -29,10 +224,13 @@ export default function App() {
     ws.onopen = () => {
       console.log("WebSocket connected");
       setIsConnected(true);
-      // Re-subscribe to current chat if any
       const currentChatId = selectedChatIdRef.current;
       if (currentChatId) {
-        ws.send(JSON.stringify({ type: "subscribe", chatId: currentChatId }));
+        ws.send(JSON.stringify({
+          type: "subscribe",
+          chatId: currentChatId,
+          authorization: `Bearer ${token}`,
+        }));
       }
     };
 
@@ -49,17 +247,15 @@ export default function App() {
       console.log("WebSocket disconnected");
       setIsConnected(false);
       wsRef.current = null;
-      // Auto-reconnect
       reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
     };
 
     ws.onerror = (error) => {
       console.error("WebSocket error:", error);
     };
-  }, []);
+  }, [token]);
 
   const handleWSMessage = useCallback((message) => {
-    // Only handle messages for the currently selected chat
     const msgChatId = message.chatId || message.chat_id;
     if (msgChatId && msgChatId !== selectedChatIdRef.current) {
       return;
@@ -74,11 +270,9 @@ export default function App() {
         break;
 
       case "user_message":
-        // User message already added locally
         break;
 
       case "assistant_message":
-        // Legacy complete message (fallback)
         setMessages((prev) => [
           ...prev,
           {
@@ -93,15 +287,11 @@ export default function App() {
 
       case "assistant_delta":
         setMessages((prev) => {
-          const revIdx = prev.slice().reverse()
-            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
           if (revIdx >= 0) {
             const idx = prev.length - 1 - revIdx;
             const next = [...prev];
-            next[idx] = {
-              ...next[idx],
-              content: next[idx].content + message.delta,
-            };
+            next[idx] = { ...next[idx], content: next[idx].content + message.delta };
             return next;
           }
           return [
@@ -120,15 +310,11 @@ export default function App() {
 
       case "thinking_delta":
         setMessages((prev) => {
-          const revIdx = prev.slice().reverse()
-            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
           if (revIdx >= 0) {
             const idx = prev.length - 1 - revIdx;
             const next = [...prev];
-            next[idx] = {
-              ...next[idx],
-              thinking: (next[idx].thinking || "") + message.delta,
-            };
+            next[idx] = { ...next[idx], thinking: (next[idx].thinking || "") + message.delta };
             return next;
           }
           return [
@@ -147,11 +333,7 @@ export default function App() {
 
       case "tool_use":
         setMessages((prev) => {
-          // Find the last streaming assistant message
-          const assistantIdx = prev.findLastIndex(
-            (m) => m.role === "assistant" && m.isStreaming
-          );
-          // Insert tool_use right after the assistant that triggered it
+          const assistantIdx = prev.findLastIndex((m) => m.role === "assistant" && m.isStreaming);
           const insertIdx = assistantIdx >= 0 ? assistantIdx + 1 : prev.length;
           const next = [...prev];
           next.splice(insertIdx, 0, {
@@ -168,19 +350,11 @@ export default function App() {
 
       case "interrupted":
         setMessages((prev) => {
-          // Find the last streaming assistant (may not be the very last if user
-          // sent a new message while assistant was still streaming)
-          const revIdx = prev.slice().reverse()
-            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
           if (revIdx >= 0) {
             const idx = prev.length - 1 - revIdx;
             const next = [...prev];
-            next[idx] = {
-              ...next[idx],
-              isStreaming: false,
-              // Clear thinking so the old thinking block disappears
-              thinking: "",
-            };
+            next[idx] = { ...next[idx], isStreaming: false, thinking: "" };
             return next;
           }
           return prev;
@@ -191,8 +365,7 @@ export default function App() {
 
       case "result":
         setMessages((prev) => {
-          const revIdx = prev.slice().reverse()
-            .findIndex((m) => m.role === "assistant" && m.isStreaming);
+          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
           if (revIdx >= 0) {
             const idx = prev.length - 1 - revIdx;
             const next = [...prev];
@@ -203,7 +376,6 @@ export default function App() {
         });
         loadingRef.current = false;
         setIsLoading(false);
-        // Refresh chat list to get updated titles
         fetchChats();
         break;
 
@@ -213,35 +385,29 @@ export default function App() {
         setIsLoading(false);
         break;
     }
-  }, []);
+  }, [fetchChats]);
 
-  // Initialize WebSocket
   useEffect(() => {
     connectWebSocket();
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) wsRef.current.close();
     };
   }, [connectWebSocket]);
 
-  // Fetch all chats
-  const fetchChats = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/chats`);
-      const data = await res.json();
-      setChats(data);
-    } catch (error) {
-      console.error("Failed to fetch chats:", error);
+  // Re-subscribe when chat changes
+  useEffect(() => {
+    selectedChatIdRef.current = selectedChatId;
+    if (selectedChatId && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: "subscribe",
+        chatId: selectedChatId,
+        authorization: `Bearer ${token}`,
+      }));
     }
-  }, []);
+  }, [selectedChatId, token]);
 
-  // Create new chat - instant, no backend call, not shown in sidebar
   const createChat = () => {
-    // Discard current draft if exists
     setDraftChat(null);
     const tempId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -257,19 +423,19 @@ export default function App() {
     setIsLoading(false);
   };
 
-
-  // Initialize draft chat with backend session
   const initDraftChat = async (chatId) => {
     if (!chatId) return chatId;
     try {
       const res = await fetch(`${API_BASE}/chats/init`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ tempId: chatId }),
       });
       const data = await res.json();
       if (data.id) {
-        // Move draft to formal chats
         const draftTitle = draftChat?.title || "New Chat";
         const formalChat = {
           id: data.id,
@@ -279,16 +445,8 @@ export default function App() {
         };
         setChats((prev) => [formalChat, ...prev]);
         setDraftChat(null);
-        // Update selectedChatId so ChatWindow renders correctly
-        // Also immediately update the ref so WebSocket message handler
-        // doesn't filter out messages for the new chat ID
         selectedChatIdRef.current = data.id;
-        setSelectedChatId((current) => {
-          if (current === chatId) {
-            return data.id;
-          }
-          return current;
-        });
+        setSelectedChatId((current) => (current === chatId ? data.id : current));
         return data.id;
       }
     } catch (error) {
@@ -297,10 +455,12 @@ export default function App() {
     return chatId;
   };
 
-  // Delete chat
   const deleteChat = async (chatId) => {
     try {
-      await fetch(`${API_BASE}/chats/${chatId}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/chats/${chatId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setChats((prev) => prev.filter((c) => c.id !== chatId));
       if (selectedChatId === chatId) {
         setSelectedChatId(null);
@@ -311,15 +471,6 @@ export default function App() {
     }
   };
 
-  // Keep ref in sync with selectedChatId
-  useEffect(() => {
-    selectedChatIdRef.current = selectedChatId;
-    if (selectedChatId && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "subscribe", chatId: selectedChatId }));
-    }
-  }, [selectedChatId]);
-
-  // Select a chat - discard draft if switching away
   const selectChat = (chatId) => {
     setDraftChat(null);
     selectedChatIdRef.current = chatId;
@@ -329,16 +480,11 @@ export default function App() {
     setIsLoading(false);
   };
 
-  // Check if a chatId is a draft (not in formal chats list)
-  const isDraftChat = (chatId) => {
-    return !chats.some((c) => c.id === chatId);
-  };
+  const isDraftChat = (chatId) => !chats.some((c) => c.id === chatId);
 
-  // Send a message
   const handleSendMessage = async (content) => {
     if (!selectedChatId || !isConnected) return;
 
-    // Add message optimistically
     setMessages((prev) => [
       ...prev,
       {
@@ -354,40 +500,29 @@ export default function App() {
       setIsLoading(true);
     }
 
-    // If in draft mode, initialize it first
     let chatId = selectedChatId;
     if (isDraftChat(selectedChatId)) {
       chatId = await initDraftChat(selectedChatId);
     }
 
-    // Send via WebSocket
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "chat",
-          content,
-          chatId,
-        })
-      );
+      wsRef.current.send(JSON.stringify({
+        type: "chat",
+        content,
+        chatId,
+      }));
     }
   };
 
-  // Initial fetch - only once
-  useEffect(() => {
-    if (!fetchedRef.current) {
-      fetchedRef.current = true;
-      fetchChats();
-    }
-  }, [fetchChats]);
-
-  // Determine which chat ID to show as selected in sidebar
-  // Draft chat is not in sidebar, so sidebar shows none selected when in draft
   const sidebarSelectedId = draftChat ? null : selectedChatId;
 
   return (
     <div className="flex h-screen">
-      {/* Sidebar - only shows formal chats */}
       <div className="w-64 shrink-0">
+        <div className="flex items-center justify-between p-4 border-b">
+          <span className="font-medium truncate">{user.email}</span>
+          <button onClick={logout} className="text-sm text-gray-500 hover:text-gray-700">Logout</button>
+        </div>
         <ChatList
           chats={chats}
           selectedChatId={sidebarSelectedId}
@@ -396,8 +531,6 @@ export default function App() {
           onDeleteChat={deleteChat}
         />
       </div>
-
-      {/* Main chat area */}
       <ChatWindow
         chatId={selectedChatId}
         messages={messages}
@@ -406,9 +539,7 @@ export default function App() {
         onSendMessage={handleSendMessage}
         onStopResponse={() => {
           if (wsRef.current?.readyState === WebSocket.OPEN && selectedChatId) {
-            wsRef.current.send(
-              JSON.stringify({ type: "stop", chatId: selectedChatId })
-            );
+            wsRef.current.send(JSON.stringify({ type: "stop", chatId: selectedChatId }));
           }
         }}
       />

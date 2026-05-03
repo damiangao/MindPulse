@@ -36,10 +36,25 @@ class AgentSession:
     sending follow-up messages without reconnecting.
     """
 
-    def __init__(self, session_id: str | None = None):
+    def __init__(self, session_id: str | None = None, workspace_id: str | None = None):
         self.session_id = session_id
+        self._workspace_id = workspace_id
+
+        # Compute project root: per-account workspace if workspace_id provided
+        if workspace_id:
+            project_root = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                "data",
+                "workspaces",
+                workspace_id,
+            )
+            # Ensure workspace directory exists
+            os.makedirs(project_root, exist_ok=True)
+        else:
+            project_root = PROJECT_ROOT
+
         self._options = ClaudeAgentOptions(
-            cwd=PROJECT_ROOT,
+            cwd=project_root,
             system_prompt=SYSTEM_PROMPT,
             max_turns=100,
             model=DEFAULT_MODEL,
@@ -80,9 +95,7 @@ class AgentSession:
         """Async generator that yields messages from the queue for streaming input."""
         while not self._closed:
             try:
-                message = await asyncio.wait_for(
-                    self._message_queue.get(), timeout=1.0
-                )
+                message = await asyncio.wait_for(self._message_queue.get(), timeout=1.0)
                 yield message
             except asyncio.TimeoutError:
                 continue
@@ -125,10 +138,12 @@ class AgentSession:
         await self.connect()
 
         # Send a dummy message to trigger init
-        await self._message_queue.put({
-            "type": "user",
-            "message": {"role": "user", "content": "hi"},
-        })
+        await self._message_queue.put(
+            {
+                "type": "user",
+                "message": {"role": "user", "content": "hi"},
+            }
+        )
 
         # Wait for init message
         while not self.session_id and not self._closed:
@@ -166,19 +181,19 @@ class AgentSession:
         _logger.debug(f"[AgentSession] send_message starting, content={content[:30]}...")
 
         # Send the user message
-        await self._message_queue.put({
-            "type": "user",
-            "message": {"role": "user", "content": content},
-        })
+        await self._message_queue.put(
+            {
+                "type": "user",
+                "message": {"role": "user", "content": content},
+            }
+        )
         _logger.debug("[AgentSession] Message queued")
 
         # Yield messages until we see a ResultMessage
         msg_count = 0
         while True:
             try:
-                message = await asyncio.wait_for(
-                    self._response_queue.get(), timeout=0.1
-                )
+                message = await asyncio.wait_for(self._response_queue.get(), timeout=0.1)
             except asyncio.TimeoutError:
                 if self._closed:
                     _logger.debug("[AgentSession] Closed, exiting")
@@ -210,7 +225,10 @@ class AgentSession:
                 drained_resp += 1
             except asyncio.QueueEmpty:
                 break
-        _logger.debug(f"[AgentSession] Drained queues: message_queue={drained_msg}, response_queue={drained_resp}")
+        _logger.debug(
+            f"[AgentSession] Drained queues: "
+            f"message_queue={drained_msg}, response_queue={drained_resp}"
+        )
 
     async def interrupt(self) -> None:
         """Interrupt the current assistant response (streaming mode only).
@@ -238,7 +256,10 @@ class AgentSession:
                 drained_count += 1
                 empty_streak = 0
                 if isinstance(message, ResultMessage):
-                    _logger.debug(f"[AgentSession] Drained ResultMessage (subtype={message.subtype}), interrupt cleanup done")
+                    _logger.debug(
+                        f"[AgentSession] Drained ResultMessage "
+                        f"(subtype={message.subtype}), interrupt cleanup done"
+                    )
                     break
             except asyncio.QueueEmpty:
                 empty_streak += 1
@@ -253,7 +274,11 @@ class AgentSession:
             except asyncio.QueueEmpty:
                 break
 
-        _logger.debug(f"[AgentSession] Interrupt cleanup done: response_queue drained={drained_count}, message_queue drained={msg_drained}")
+        _logger.debug(
+            f"[AgentSession] Interrupt cleanup done: "
+            f"response_queue drained={drained_count}, "
+            f"message_queue drained={msg_drained}"
+        )
 
     async def close(self) -> None:
         """Close the persistent connection."""

@@ -51,6 +51,20 @@ def get_project_root() -> str:
     return os.getenv("AGENT_PROJECT_ROOT", ".")
 
 
+def get_current_user(authorization: str = Header(...)):
+    """Extract and verify JWT from Authorization Bearer header. Returns user_id."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization[7:]
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    # Use user_id as workspace_id for account-level isolation
+    return payload["sub"]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
