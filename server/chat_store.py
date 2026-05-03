@@ -57,7 +57,6 @@ class ChatStore:
         """
         with get_workspace_db(workspace_id) as conn:
             chat_repo = ChatRepository(conn, workspace_id)
-            # Check that the chat exists
             chat = chat_repo.get_chat(chat_id)
             if chat is None:
                 raise ValueError(f"Chat {chat_id} not found in workspace {workspace_id}")
@@ -65,13 +64,11 @@ class ChatStore:
             msg_repo = MessageRepository(conn, workspace_id)
             msg = msg_repo.add_message(chat_id, role, content)
 
-            # Update chat's updated_at and auto-generate title from first user message
-            chat_repo = ChatRepository(conn, workspace_id)
-            chat = chat_repo.get_chat(chat_id)
-            if chat and chat.title == "New Chat" and role == "user":
+            # Auto-title from first user message; otherwise just update timestamp
+            if chat.title == "New Chat" and role == "user":
                 title = content[:50] + ("..." if len(content) > 50 else "")
                 chat_repo.update_title(chat_id, title)
-            elif chat:
+            else:
                 chat_repo.touch(chat_id)
 
             return msg

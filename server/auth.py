@@ -45,6 +45,22 @@ def decode_token(token: str) -> dict[str, Any] | None:
         return None
 
 
+def extract_token_from_auth_header(authorization: str) -> str:
+    """Extract JWT token from Authorization Bearer header. Raises ValueError if invalid."""
+    if not authorization.startswith("Bearer "):
+        raise ValueError("Missing or invalid Authorization header")
+    return authorization[7:]
+
+
+def get_user_id_from_auth_header(authorization: str) -> str:
+    """Validate and return user_id from Authorization header. Raises ValueError if invalid."""
+    token = extract_token_from_auth_header(authorization)
+    payload = decode_token(token)
+    if not payload:
+        raise ValueError("Invalid or expired token")
+    return payload["sub"]
+
+
 def generate_user_id() -> str:
     """Generate a unique user ID."""
     return str(uuid.uuid4())

@@ -319,7 +319,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json(
                     {
                         "type": "error",
-                        "error": str(e),
+                        "error": "Internal server error",
                     }
                 )
 
