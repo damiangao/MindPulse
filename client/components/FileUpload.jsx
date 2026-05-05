@@ -4,9 +4,9 @@ const API_BASE = "/api";
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 /**
- * @param {{ chatId: string, onFileUploaded: (path: string, name: string) => void }} props
+ * @param {{ chatId: string, token: string, onFileUploaded: (path: string, name: string) => void }} props
  */
-export function FileUpload({ chatId, onFileUploaded }) {
+export function FileUpload({ chatId, token, onFileUploaded }) {
   const fileInputRef = useRef(null);
   const [isUploading, setIsUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -19,6 +19,7 @@ export function FileUpload({ chatId, onFileUploaded }) {
       formData.append("chatId", chatId);
       const res = await fetch(`${API_BASE}/files/upload`, {
         method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
       if (!res.ok) throw new Error("Upload failed");
@@ -81,8 +82,8 @@ export function FileUpload({ chatId, onFileUploaded }) {
         {isUploading ? (
           <span className="animate-pulse">...</span>
         ) : (
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z"/>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
           </svg>
         )}
       </button>

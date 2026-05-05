@@ -1,114 +1,87 @@
 # Simple Chat App (Python)
 
-A minimal chat application demonstrating the Claude Agent SDK Python version.
-
-## Architecture
-
-- **Frontend**: React + Vite + Tailwind CSS (JSX version, same as original)
-- **Backend**: Python + FastAPI + WebSocket (websockets)
-- **Agent**: Claude Agent SDK Python integrated directly on the server
-- **Package Manager**: UV (Python), npm (frontend dev server)
-- **Config**: pyproject.toml, package.json
+A chat web application with a Python FastAPI backend and React frontend. AI conversations are powered by the `claude-agent-sdk` Python package via WebSocket, with SQLite persistence and per-account workspace isolation.
 
 ## Prerequisites
 
-- Python 3.10+
-- [UV](https://docs.astral.sh/uv/) package manager
+- Python 3.10+ with [UV](https://docs.astral.sh/uv/)
 - Node.js + npm
 - Anthropic API key
 
-## Running the App
+## Quick Start
 
 ```bash
-# 1. Copy environment variables
+# 1. Copy and edit environment variables
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Edit .env: add ANTHROPIC_API_KEY
 
-# 2. Install Python dependencies
+# 2. Install dependencies
 uv sync
-
-# 3. Install Node dependencies (for Vite dev server)
 npm install
 
-# 4. Kill any existing processes on the ports (macOS/Linux)
-lsof -ti:3001 | xargs kill -9 2>/dev/null
-lsof -ti:5173 | xargs kill -9 2>/dev/null
-
-# 5. Start both backend and frontend
+# 3. Start both backend and frontend
 npm run dev
 ```
 
-> **Important:** The backend loads `.env` automatically via `load_dotenv()` in `server/main.py`. If you run Python code that uses `claude-agent-sdk` directly (tests, scripts), you must call `load_dotenv()` before importing the SDK — it reads `ANTHROPIC_API_KEY` from the environment at initialization time.
+Visit http://localhost:5173 to use the app.
 
-This starts:
-- Backend server on http://localhost:3001
-- Vite dev server on http://localhost:5173
+## Architecture
 
-Visit http://localhost:5173 to view the chat interface.
-
+- **Frontend:** React + Vite (port 5173)
+- **Backend:** Python + FastAPI (port 3001) with WebSocket support
+- **Database:** SQLite at `data/chats.db` with WAL mode, per-account data isolation via `user_id` column
+- **Auth:** JWT-based with bcrypt password hashing
+- **Agent:** `claude-agent-sdk` Python with streaming via `StreamEvent`
 
 ## Project Structure
 
 ```
-├── server/                    # Python backend
-│   ├── main.py               # FastAPI server (REST + WebSocket)
-│   ├── ai_client.py          # Claude Agent SDK wrapper
-│   ├── session.py            # Chat session management
-│   ├── chat_store.py         # In-memory chat storage
-│   └── models.py             # Python dataclasses
-├── client/                    # React frontend (JSX)
-│   ├── App.jsx               # Main app component
-│   ├── index.jsx             # Entry point
-│   ├── index.html            # HTML template
-│   └── components/
-│       ├── ChatList.jsx      # Left sidebar with chat list
-│       └── ChatWindow.jsx    # Main chat interface
-├── pyproject.toml            # UV project config
-├── package.json              # npm scripts and frontend deps
-├── vite.config.js            # Vite configuration
-├── .env.example              # Environment template
-└── .gitignore
+├── server/                  # Python backend
+│   ├── main.py              # FastAPI app (REST + WebSocket)
+│   ├── session.py           # Per-chat Session (broadcast, interrupt)
+│   ├── ai_client.py         # AgentSession wrapper for SDK
+│   ├── chat_store.py        # SQLite-backed chat persistence
+│   ├── auth.py              # JWT utilities
+│   ├── auth_routes.py       # /api/auth/* endpoints
+│   ├── file_storage.py      # File upload/download
+│   └── database/            # SQLite connection + repositories
+├── client/                  # React frontend
+│   ├── App.jsx              # Root + ChatApp component
+│   ├── components/          # ChatList, ChatWindow, FileUpload
+│   └── tests/               # Vitest tests
+├── data/                    # Workspace data (gitignored)
+│   └── workspaces/          # Per-user workspace dirs
+│       └── {user_id}/      # Agent files + uploaded files
+├── pyproject.toml          # UV config
+├── package.json             # npm scripts
+├── vite.config.js           # Vite + Vitest config
+└── CLAUDE.md               # Developer guidance
 ```
 
-## Available Scripts
+## Commands
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start both backend and frontend (uses concurrently) |
-| `npm run dev:server` | Start only the FastAPI backend |
-| `npm run dev:client` | Start only the Vite dev server |
-| `npm run build` | Build frontend for production |
+```bash
+npm run dev          # Start both backend + frontend
+npm run dev:server   # Backend only
+npm run dev:client   # Frontend only
+npm test             # Frontend tests (Vitest)
+uv run pytest        # Backend tests (pytest)
+```
 
-## API Endpoints
+## API Overview
 
-### REST API
+**REST:** `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/chats`, `POST /api/chats/init`, `POST /api/files/upload`, `GET /api/files/download`
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/chats` | List all chats |
-| POST | `/api/chats` | Create new chat |
-| GET | `/api/chats/{id}` | Get chat details |
-| DELETE | `/api/chats/{id}` | Delete chat |
-| GET | `/api/chats/{id}/messages` | Get chat messages |
+**WebSocket `/ws`:** Send `subscribe` (with Bearer token), `chat`, `stop`. Receive `connected`, `history`, `assistant_delta`, `thinking_delta`, `tool_use`, `result`, `interrupted`, `error`.
 
-### WebSocket (`ws://localhost:3001/ws`)
+## Environment Variables
 
-**Client -> Server:**
-- `{ type: "subscribe", chatId: string }` - Subscribe to a chat
-- `{ type: "chat", chatId: string, content: string }` - Send message
-
-**Server -> Client:**
-- `{ type: "connected" }` - Connection established
-- `{ type: "history", messages: [...] }` - Chat history
-- `{ type: "assistant_delta", delta: string }` - Streaming text chunk
-- `{ type: "thinking_delta", delta: string }` - Streaming thinking chunk
-- `{ type: "tool_use", toolName: string, toolInput: {...} }` - Tool being used
-- `{ type: "result", success: boolean }` - Query complete
-- `{ type: "error", error: string }` - Error occurred
-
-## Notes
-
-- In-memory storage (data lost on restart)
-- Agent has access to: Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch
-- Uses `ClaudeSDKClient` with `StreamEvent` streaming for real-time responses
-- FastAPI handles both REST API and WebSocket in a single server
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANTHROPIC_API_KEY` | (required) | API key for claude-agent-sdk |
+| `ANTHROPIC_BASE_URL` | `https://api.minimaxi.com/anthropic` | API base URL |
+| `MODEL` | `MiniMax-M2.7` | Model override |
+| `PORT` | `3001` | Backend port |
+| `AGENT_PROJECT_ROOT` | `.` | Base dir for per-user workspaces |
+| `JWT_SECRET` | (insecure default) | JWT signing key |
+| `JWT_EXPIRE_HOURS` | `24` | Token expiry |

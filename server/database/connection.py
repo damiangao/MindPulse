@@ -1,16 +1,16 @@
-"""SQLite database connection management with workspace isolation."""
+"""SQLite database connection management with user isolation."""
 
 import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from server.database.migrations import ensure_workspace, init_schema
+from server.database.migrations import ensure_user, init_schema
 
-# Default data directory relative to worktree root
+# Default data directory relative to repo root
 DEFAULT_DATA_DIR = Path(__file__).parent.parent.parent / "data"
 
-# Cache of initialized connections (per workspace)
+# Cache of initialized connections (per user)
 _connection_cache: dict[str, sqlite3.Connection] = {}
 
 
@@ -27,12 +27,12 @@ def _get_db_path() -> Path:
     return get_data_dir() / "chats.db"
 
 
-def _get_connection(workspace_id: str) -> sqlite3.Connection:
-    """Get or create a connection for the given workspace.
+def _get_connection(user_id: str) -> sqlite3.Connection:
+    """Get or create a connection for the given user.
 
     Connections are cached to avoid reopening the same database file.
     """
-    if workspace_id not in _connection_cache:
+    if user_id not in _connection_cache:
         db_path = _get_db_path()
         conn = sqlite3.connect(str(db_path), check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -44,33 +44,33 @@ def _get_connection(workspace_id: str) -> sqlite3.Connection:
         # Initialize schema on first connection
         init_schema(conn)
 
-        # Ensure workspace exists
-        ensure_workspace(conn, workspace_id)
+        # Ensure user exists
+        ensure_user(conn, user_id)
 
         conn.commit()
-        _connection_cache[workspace_id] = conn
+        _connection_cache[user_id] = conn
 
-    return _connection_cache[workspace_id]
+    return _connection_cache[user_id]
 
 
 @contextmanager
-def get_workspace_db(workspace_id: str):
-    """Context manager providing a database connection for a workspace.
+def get_workspace_db(user_id: str):
+    """Context manager providing a database connection for a user.
 
-    Yields a sqlite3.Connection scoped to the workspace. All queries
-    through this connection are automatically filtered to the workspace.
+    Yields a sqlite3.Connection scoped to the user. All queries
+    through this connection are automatically filtered to the user.
 
     Args:
-        workspace_id: The workspace identifier for data isolation
+        user_id: The user identifier for data isolation
 
     Yields:
-        sqlite3.Connection configured for the workspace
+        sqlite3.Connection configured for the user
     """
-    conn = _get_connection(workspace_id)
+    conn = _get_connection(user_id)
     try:
-        # Ensure this workspace exists in the database
+        # Ensure this user exists in the database
         # This is safe to call multiple times
-        ensure_workspace(conn, workspace_id)
+        ensure_user(conn, user_id)
         conn.commit()
         yield conn
         conn.commit()

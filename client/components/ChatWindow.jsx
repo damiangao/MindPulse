@@ -124,7 +124,7 @@ function MessageBubble({ message }) {
             : "bg-gray-100 text-gray-900"
         }`}
       >
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        <p className="whitespace-pre-wrap break-words">{message.content.replace(/^\n+/, '')}</p>
         {downloadFiles.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
             {downloadFiles.map((path) => (
@@ -155,6 +155,7 @@ export function ChatWindow({
   isLoading,
   onSendMessage,
   onStopResponse,
+  token,
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
@@ -281,7 +282,7 @@ export function ChatWindow({
               Send
             </button>
           )}
-          <FileUpload chatId={chatId} onFileUploaded={handleFileUploaded} />
+          <FileUpload chatId={chatId} token={token} onFileUploaded={handleFileUploaded} />
         </form>
       </div>
     </div>

@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,14 +29,16 @@ class TestChatsAPI:
         mock_chat_store.get_all_chats.return_value = [
             Chat(
                 id="chat-1",
-                workspace_id="test-user-123",
+                session_id="sess-1",
+                user_id="test-user-123",
                 title="First",
                 created_at="2024-01-01",
                 updated_at="2024-01-02",
             ),
             Chat(
                 id="chat-2",
-                workspace_id="test-user-123",
+                session_id="sess-2",
+                user_id="test-user-123",
                 title="Second",
                 created_at="2024-01-03",
                 updated_at="2024-01-04",
@@ -76,7 +79,7 @@ class TestChatsAPI:
         }
 
         response = client.post(
-            "/api/chats/init", json={"tempId": "temp-123"}, headers=auth_header()
+            "/api/chats/init", json={"chatId": "temp-123"}, headers=auth_header()
         )
 
         assert response.status_code == 200
@@ -90,7 +93,7 @@ class TestChatsAPI:
 
         assert response.status_code == 400
         data = response.json()
-        assert "tempId is required" in data["detail"]
+        assert "chatId is required" in data["detail"]
         mock_create.assert_not_called()
 
     @patch("server.main.chat_store")
@@ -99,7 +102,8 @@ class TestChatsAPI:
 
         mock_chat_store.get_chat.return_value = Chat(
             id="chat-1",
-            workspace_id="test-user-123",
+            session_id="sess-1",
+            user_id="test-user-123",
             title="Test",
             created_at="2024-01-01",
             updated_at="2024-01-01",
@@ -148,7 +152,7 @@ class TestChatsAPI:
             ChatMessage(
                 id="msg-1",
                 chat_id="chat-1",
-                workspace_id="test-user-123",
+                user_id="test-user-123",
                 role="user",
                 content="Hello",
                 timestamp="2024-01-01",
@@ -156,7 +160,7 @@ class TestChatsAPI:
             ChatMessage(
                 id="msg-2",
                 chat_id="chat-1",
-                workspace_id="test-user-123",
+                user_id="test-user-123",
                 role="assistant",
                 content="Hi there",
                 timestamp="2024-01-02",
@@ -206,11 +210,13 @@ class TestWebSocket:
             mock_session.subscribe.assert_called_once()
             mock_get_session.assert_called_once_with("chat-1", "test-user-123")
 
+    @patch("server.main.chat_store")
     @patch("server.main.get_or_create_session")
-    def test_websocket_chat(self, mock_get_session, client):
+    def test_websocket_chat(self, mock_get_session, mock_chat_store, client):
         mock_session = MagicMock()
         mock_session.send_message = AsyncMock()
         mock_get_session.return_value = mock_session
+        mock_chat_store.get_chat.return_value = MagicMock(session_id="existing-session")
 
         with client.websocket_connect("/ws") as ws:
             msg = ws.receive_json()
@@ -234,6 +240,63 @@ class TestWebSocket:
 
             asyncio.run(asyncio.sleep(0.1))
 
+            mock_session.send_message.assert_called_once_with("Hello")
+
+    @patch("server.main.chat_store")
+    @patch("server.main.AgentSession")
+    @patch("server.main.get_or_create_session")
+    def test_chat_auto_creates_chat_and_session(
+        self, mock_get_session, mock_agent_session_cls, mock_chat_store, client
+    ):
+        """When chat message received for non-existent chat, chat and session are auto-created."""
+        temp_chat_id = str(uuid4())
+        user_id = "testuser"
+
+        # Simulate chat not existing
+        mock_chat_store.get_chat.return_value = None
+
+        # Mock AgentSession instance and init
+        mock_agent_session = MagicMock()
+        mock_agent_session.init = AsyncMock(return_value="new-session-id")
+        mock_agent_session_cls.return_value = mock_agent_session
+
+        # Mock get_or_create_session to return a mock session
+        mock_session = MagicMock()
+        mock_session.send_message = AsyncMock()
+        mock_get_session.return_value = mock_session
+
+        with client.websocket_connect("/ws") as ws:
+            msg = ws.receive_json()
+            assert msg["type"] == "connected"
+
+            from tests.test_auth import make_test_token
+
+            token = make_test_token(user_id=user_id)
+            ws.send_json(
+                {
+                    "type": "subscribe",
+                    "chatId": temp_chat_id,
+                    "authorization": f"Bearer {token}",
+                }
+            )
+            ws.receive_json()  # history
+
+            ws.send_json({"type": "chat", "chatId": temp_chat_id, "content": "Hello"})
+
+            import asyncio
+
+            asyncio.run(asyncio.sleep(0.1))
+
+            # Verify AgentSession was created and initialized
+            mock_agent_session_cls.assert_called_once_with(user_id=user_id)
+            mock_agent_session.init.assert_awaited_once()
+
+            # Verify chat was created in store
+            mock_chat_store.create_chat.assert_called_once_with(
+                temp_chat_id, user_id, None, "new-session-id"
+            )
+
+            # Verify session was used to send message
             mock_session.send_message.assert_called_once_with("Hello")
 
     def test_websocket_invalid_json(self, client):
@@ -420,8 +483,8 @@ class TestFileUploadAPI:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["path"] == "workspace/chat-123/test.txt"
-        assert (tmp_path / "workspace" / "chat-123" / "test.txt").read_bytes() == file_content
+        assert data["path"] == "test-user-123/chat-123/test.txt"
+        assert (tmp_path / "test-user-123" / "chat-123" / "test.txt").read_bytes() == file_content
 
     def test_upload_file_missing_chat_id(self, client):
         from io import BytesIO
@@ -435,13 +498,13 @@ class TestFileUploadAPI:
     @patch("server.main.get_project_root")
     def test_download_file(self, mock_root, client, tmp_path):
         mock_root.return_value = str(tmp_path)
-        file_path = tmp_path / "workspace" / "chat-123" / "test.txt"
+        file_path = tmp_path / "test-user-123" / "chat-123" / "test.txt"
         file_path.parent.mkdir(parents=True)
         file_path.write_bytes(b"file content")
         from tests.test_auth import auth_header
 
         response = client.get(
-            "/api/files/download?path=workspace%2Fchat-123%2Ftest.txt", headers=auth_header()
+            "/api/files/download?path=test-user-123%2Fchat-123%2Ftest.txt", headers=auth_header()
         )
         assert response.status_code == 200
         assert response.content == b"file content"
@@ -452,6 +515,6 @@ class TestFileUploadAPI:
         from tests.test_auth import auth_header
 
         response = client.get(
-            "/api/files/download?path=nonexistent%2Ffile.txt", headers=auth_header()
+            "/api/files/download?path=test-user-123%2Fnonexistent%2Ffile.txt", headers=auth_header()
         )
         assert response.status_code == 404

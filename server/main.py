@@ -48,14 +48,14 @@ for _uvlogger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
 
 _logger = setup_logger("main")
 
-# Session management: (chat_id, workspace_id) -> Session
+# Session management: (chat_id, user_id) -> Session
 _sessions: dict[tuple[str, str], Session] = {}
 
 
-def get_or_create_session(chat_id: str, workspace_id: str) -> Session:
-    key = (chat_id, workspace_id)
+def get_or_create_session(chat_id: str, user_id: str) -> Session:
+    key = (chat_id, user_id)
     if key not in _sessions:
-        _sessions[key] = Session(chat_id, workspace_id)
+        _sessions[key] = Session(chat_id, user_id)
     return _sessions[key]
 
 
@@ -74,7 +74,7 @@ def get_current_user(authorization: str = Header(...)):
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # Use user_id as workspace_id for account-level isolation
+    # Use user_id as per-account workspace directory
     return payload["sub"]
 
 
@@ -116,32 +116,34 @@ async def get_chats(user_id: str = Depends(get_current_user)):
     return [c.to_dict() for c in chats]
 
 
-async def _create_sdk_chat(workspace_id: str, title: str | None = None) -> dict:
+async def _create_sdk_chat(chat_id: str, user_id: str, title: str | None = None) -> dict:
     """Create a new chat by initializing an AgentSession and extracting session_id."""
-    agent_session = AgentSession(workspace_id=workspace_id)
+    agent_session = AgentSession(user_id=user_id)
     session_id = await agent_session.init()
 
     if not session_id:
         raise HTTPException(status_code=500, detail="Failed to create chat session")
 
-    chat = chat_store.create_chat(session_id, workspace_id, title)
+    chat = chat_store.create_chat(chat_id, user_id, title, session_id)
     return chat.to_dict()
 
 
 # REST API: Create new chat (auth required)
 @app.post("/api/chats")
 async def create_chat(payload: dict | None = None, user_id: str = Depends(get_current_user)):
-    return await _create_sdk_chat(user_id, payload.get("title") if payload else None)
+    from uuid import uuid4
+    return await _create_sdk_chat(str(uuid4()), user_id, payload.get("title") if payload else None)
 
 
 # REST API: Initialize a draft chat with SDK session (auth required)
 @app.post("/api/chats/init")
 async def init_chat(payload: dict, user_id: str = Depends(get_current_user)):
-    temp_id = payload.get("tempId")
-    if not temp_id:
-        raise HTTPException(status_code=400, detail="tempId is required")
+    chat_id = payload.get("chatId")
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chatId is required")
 
-    return await _create_sdk_chat(user_id, payload.get("title") if payload else None)
+    title = payload.get("title") if payload else None
+    return await _create_sdk_chat(chat_id, user_id, title)
 
 
 # REST API: Get single chat (auth required)
@@ -182,7 +184,7 @@ async def upload_file(
 ):
     project_root = get_project_root()
     content = await file.read()
-    relative_path = save_file(content, chatId, file.filename or "uploaded_file", project_root)
+    relative_path = save_file(content, user_id, chatId, file.filename or "uploaded_file", project_root)
     return {"path": relative_path}
 
 
@@ -190,6 +192,9 @@ async def upload_file(
 @app.get("/api/files/download")
 async def download_file(path: str, user_id: str = Depends(get_current_user)):
     project_root = get_project_root()
+    # Validate path belongs to requesting user: {user_id}/...
+    if not path.startswith(f"{user_id}/"):
+        raise HTTPException(status_code=403, detail="Access denied")
     file_path = get_file_path(path, project_root)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
@@ -278,10 +283,29 @@ async def websocket_endpoint(websocket: WebSocket):
                         )
                         continue
                     content = message["content"]
-                    _logger.debug(
+                    _logger.info(
                         f"[WebSocket] Chat msg for chat_id={chat_id}, "
                         f"content={content[:30]}..."
                     )
+
+                    # Auto-create chat + session if they don't exist
+                    chat = chat_store.get_chat(chat_id, user_id)
+                    if not chat:
+                        _logger.info(f"[WebSocket] Chat {chat_id} not found, auto-creating...")
+                        agent_session = AgentSession(user_id=user_id)
+                        session_id = await agent_session.init()
+                        if not session_id:
+                            _logger.error(f"[WebSocket] Failed to init session for chat_id={chat_id}")
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "error": "Failed to initialize session",
+                                }
+                            )
+                            continue
+                        chat_store.create_chat(chat_id, user_id, None, session_id)
+                        _logger.info(f"[WebSocket] Created chat {chat_id} with session_id={session_id}")
+
                     session = get_or_create_session(chat_id, user_id)
                     await session.send_message(content)
                     _logger.debug(

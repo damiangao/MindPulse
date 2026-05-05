@@ -5,6 +5,12 @@ import { ChatWindow } from "./components/ChatWindow";
 const API_BASE = "/api";
 const WS_URL = `ws://${window.location.host}/ws`;
 
+const ROLE = {
+  TOOL_USE: "tool_use",
+  ASSISTANT: "assistant",
+  USER: "user",
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
@@ -213,6 +219,11 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
   const loadingRef = useRef(false);
   const connectingRef = useRef(false);
 
+  const findStreamingAssistantIdx = (messages) => {
+    const revIdx = messages.slice().reverse().findIndex((m) => m.role === ROLE.ASSISTANT && m.isStreaming);
+    return revIdx >= 0 ? messages.length - 1 - revIdx : -1;
+  };
+
   const connectWebSocket = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) return;
     if (connectingRef.current) return;
@@ -293,25 +304,22 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
 
       case "assistant_delta":
         setMessages((prev) => {
-          // If there's a tool_use in the message list, append to a new assistant after it
-          const toolUseIdx = prev.findLastIndex((m) => m.role === "tool_use");
-          if (toolUseIdx >= 0) {
-            // Insert new assistant message after the last tool_use
-            const next = [...prev];
-            next.splice(toolUseIdx + 1, 0, {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content: message.delta,
-              thinking: "",
-              isStreaming: true,
-              timestamp: new Date().toISOString(),
-            });
-            return next;
+          const lastIdx = prev.length - 1;
+          if (lastIdx >= 0 && prev[lastIdx].role === "tool_use") {
+            return [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: message.delta,
+                thinking: "",
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+              },
+            ];
           }
-          // No tool_use yet - find streaming assistant and append
-          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
-          if (revIdx >= 0) {
-            const idx = prev.length - 1 - revIdx;
+          const idx = findStreamingAssistantIdx(prev);
+          if (idx >= 0) {
             const next = [...prev];
             next[idx] = { ...next[idx], content: next[idx].content + message.delta };
             return next;
@@ -332,23 +340,22 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
 
       case "thinking_delta":
         setMessages((prev) => {
-          // If there's a tool_use in the list, create a new streaming assistant after it
-          const toolUseIdx = prev.findLastIndex((m) => m.role === "tool_use");
-          if (toolUseIdx >= 0) {
-            const next = [...prev];
-            next.splice(toolUseIdx + 1, 0, {
-              id: crypto.randomUUID(),
-              role: "assistant",
-              content: "",
-              thinking: message.delta,
-              isStreaming: true,
-              timestamp: new Date().toISOString(),
-            });
-            return next;
+          const lastIdx = prev.length - 1;
+          if (lastIdx >= 0 && prev[lastIdx].role === "tool_use") {
+            return [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: "",
+                thinking: message.delta,
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+              },
+            ];
           }
-          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
-          if (revIdx >= 0) {
-            const idx = prev.length - 1 - revIdx;
+          const idx = findStreamingAssistantIdx(prev);
+          if (idx >= 0) {
             const next = [...prev];
             next[idx] = { ...next[idx], thinking: (next[idx].thinking || "") + message.delta };
             return next;
@@ -387,9 +394,8 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
 
       case "interrupted":
         setMessages((prev) => {
-          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
-          if (revIdx >= 0) {
-            const idx = prev.length - 1 - revIdx;
+          const idx = findStreamingAssistantIdx(prev);
+          if (idx >= 0) {
             const next = [...prev];
             next[idx] = { ...next[idx], isStreaming: false, thinking: "" };
             return next;
@@ -402,9 +408,8 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
 
       case "result":
         setMessages((prev) => {
-          const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
-          if (revIdx >= 0) {
-            const idx = prev.length - 1 - revIdx;
+          const idx = findStreamingAssistantIdx(prev);
+          if (idx >= 0) {
             const next = [...prev];
             next[idx] = { ...next[idx], isStreaming: false };
             return next;
@@ -413,8 +418,7 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
         });
         loadingRef.current = false;
         setIsLoading(false);
-        // Await fetchChats to ensure sidebar updates before result is fully processed
-        await fetchChats();
+        fetchChats().catch(console.error);
         break;
 
       case "error":

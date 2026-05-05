@@ -171,4 +171,65 @@ test.describe('Full User Flow E2E', () => {
     // Should see Chat A message in history
     await expect(page.getByText('Chat A message').first()).toBeVisible({ timeout: 5000 });
   });
+
+  test('multi-round message ordering: verify messages appear in correct order after multiple rounds', async ({ page }) => {
+    const email = `multi-${Date.now()}@example.com`;
+
+    await page.goto('/');
+    // Switch to register mode if showing login
+    const toggleBtn = page.locator('button:text-is("Register")').first();
+    if (await toggleBtn.isVisible()) {
+      await toggleBtn.click();
+    }
+    await page.locator('input[type="email"]').fill(email);
+    await page.locator('input[type="password"]').first().fill('testpass123');
+    await page.locator('form button[type="submit"]').click();
+    await expect(page.getByRole('button', { name: 'New Chat' })).toBeVisible({ timeout: 15000 });
+
+    // Round 1: Create chat and send first message
+    await page.getByRole('button', { name: 'New Chat' }).click();
+    const input1 = page.getByPlaceholder('Type a message...');
+    await input1.fill('First round message');
+    await input1.press('Enter');
+    await expect(page.getByText('First round message').first()).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('Thinking...')).toBeVisible({ timeout: 30000 });
+
+    // Wait for response to complete
+    await page.waitForFunction(
+      () => !document.body.textContent.includes('Thinking...') || document.querySelector('[class*="cursor-pointer"]'),
+      { timeout: 30000 }
+    );
+
+    // Round 2: Send follow-up message
+    await input1.fill('Second round message');
+    await input1.press('Enter');
+    await expect(page.getByText('Second round message').first()).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText('Thinking...')).toBeVisible({ timeout: 30000 });
+
+    // Wait for response to complete
+    await page.waitForFunction(
+      () => !document.body.textContent.includes('Thinking...') || document.querySelector('[class*="cursor-pointer"]'),
+      { timeout: 30000 }
+    );
+
+    // Verify both messages appear in correct order in the DOM
+    const pageText = await page.content();
+    const firstMessageIdx = pageText.indexOf('First round message');
+    const secondMessageIdx = pageText.indexOf('Second round message');
+    expect(firstMessageIdx).toBeLessThan(secondMessageIdx);
+    expect(firstMessageIdx).not.toBe(-1);
+    expect(secondMessageIdx).not.toBe(-1);
+
+    // Verify sidebar shows the chat
+    await page.waitForFunction(
+      () => document.querySelectorAll('[class*="cursor-pointer"]').length >= 1,
+      { timeout: 10000 }
+    );
+    const chatCount = await page.locator('[class*="cursor-pointer"]').count();
+    expect(chatCount).toBe(1);
+
+    // Verify chat title in sidebar (should be auto-generated from first message)
+    const chatTitle = await page.locator('[class*="cursor-pointer"]').first().textContent();
+    expect(chatTitle).toContain('First round');
+  });
 });

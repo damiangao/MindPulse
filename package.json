@@ -8,15 +8,23 @@
     "dev:server": "PYTHONPATH=. uv run python -m server.main",
     "dev:client": "vite --port 5173",
     "start": "PYTHONPATH=. uv run python -m server.main",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.0",
+    "@playwright/test": "^1.59.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.0.0",
-    "vite": "^5.4.0"
+    "jsdom": "^29.1.1",
+    "vite": "^5.4.0",
+    "vitest": "^4.1.5"
   }
 }

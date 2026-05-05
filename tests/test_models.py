@@ -5,13 +5,15 @@ class TestChat:
     def test_chat_creation(self):
         chat = Chat(
             id="chat-1",
-            workspace_id="ws-1",
+            session_id="sess-1",
+            user_id="user-1",
             title="Test",
             created_at="2024-01-01T00:00:00Z",
             updated_at="2024-01-01T00:00:00Z",
         )
         assert chat.id == "chat-1"
-        assert chat.workspace_id == "ws-1"
+        assert chat.session_id == "sess-1"
+        assert chat.user_id == "user-1"
         assert chat.title == "Test"
 
 
@@ -20,14 +22,14 @@ class TestChatMessage:
         msg = ChatMessage(
             id="msg-1",
             chat_id="chat-1",
-            workspace_id="ws-1",
+            user_id="user-1",
             role="user",
             content="Hello",
             timestamp="2024-01-01T00:00:00Z",
         )
         assert msg.role == "user"
         assert msg.content == "Hello"
-        assert msg.workspace_id == "ws-1"
+        assert msg.user_id == "user-1"
 
 
 class TestWSMessages:
@@ -36,6 +38,6 @@ class TestWSMessages:
         assert msg.type == "chat"
 
     def test_subscribe_message(self):
-        msg = WSSubscribeMessage(type="subscribe", chat_id="chat-1", workspace_id="ws-1")
+        msg = WSSubscribeMessage(type="subscribe", chat_id="chat-1", user_id="user-1")
         assert msg.type == "subscribe"
-        assert msg.workspace_id == "ws-1"
+        assert msg.chat_id == "chat-1"

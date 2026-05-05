@@ -20,7 +20,8 @@ class User:
 @dataclass
 class Chat:
     id: str
-    workspace_id: str
+    session_id: str | None
+    user_id: str
     title: str
     created_at: str
     updated_at: str
@@ -28,7 +29,8 @@ class Chat:
     def to_dict(self) -> dict:
         return {
             "id": self.id,
-            "workspaceId": self.workspace_id,
+            "sessionId": self.session_id,
+            "userId": self.user_id,
             "title": self.title,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
@@ -39,7 +41,7 @@ class Chat:
 class ChatMessage:
     id: str
     chat_id: str
-    workspace_id: str
+    user_id: str
     role: Literal["user", "assistant"]
     content: str
     timestamp: str
@@ -48,7 +50,7 @@ class ChatMessage:
         return {
             "id": self.id,
             "chatId": self.chat_id,
-            "workspaceId": self.workspace_id,
+            "userId": self.user_id,
             "role": self.role,
             "content": self.content,
             "timestamp": self.timestamp,
@@ -66,7 +68,7 @@ class WSChatMessage:
 class WSSubscribeMessage:
     type: Literal["subscribe"]
     chat_id: str
-    workspace_id: str
+    user_id: str
 
 
 IncomingWSMessage = WSChatMessage | WSSubscribeMessage

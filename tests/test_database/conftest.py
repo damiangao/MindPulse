@@ -11,23 +11,23 @@ TEST_DATA_DIR = tempfile.mkdtemp()
 
 
 @pytest.fixture
-def workspace_id():
-    """Generate a unique workspace ID for each test."""
-    return f"test-workspace-{os.urandom(8).hex()}"
+def user_id():
+    """Generate a unique user ID for each test."""
+    return f"test-user-{os.urandom(8).hex()}"
 
 
 @pytest.fixture
-def workspace_db(workspace_id):
-    """Provide a database connection scoped to a test workspace."""
+def user_db(user_id):
+    """Provide a database connection scoped to a test user."""
     from server.database.connection import get_workspace_db, reset_connections
 
     # Override the data directory for testing
     os.environ["DATA_DIR"] = TEST_DATA_DIR
 
-    # Reset connections to ensure fresh state for this workspace
+    # Reset connections to ensure fresh state for this user
     reset_connections()
 
-    with get_workspace_db(workspace_id) as conn:
+    with get_workspace_db(user_id) as conn:
         yield conn
 
     # Reset connections after test to clean up
