@@ -10,8 +10,6 @@ from claude_agent_sdk import (
     AssistantMessage,
     ResultMessage,
     SystemMessage,
-    TextBlock,
-    ThinkingBlock,
 )
 from claude_agent_sdk.types import StreamEvent
 from fastapi import WebSocket
@@ -27,13 +25,25 @@ class Session:
     # Minimum accumulated characters before broadcasting a delta
     _DELTA_BUFFER_SIZE = 20
 
-    def __init__(self, chat_id: str, workspace_id: str):
+    def __init__(self, chat_id: str, user_id: str):
         self.chat_id = chat_id
-        self.workspace_id = workspace_id
+        self.user_id = user_id
         self._subscribers: set[WebSocket] = set()
-        self._agent_session = AgentSession(session_id=chat_id, workspace_id=workspace_id)
+
+        # Defer AgentSession creation - chat may not exist yet (temp chat).
+        # AgentSession will be created lazily in send_message after auto-creation.
+        self._agent_session: AgentSession | None = None
         self._response_task: asyncio.Task | None = None
         self._reset_state()
+
+    def _ensure_agent_session(self) -> AgentSession:
+        """Lazily create AgentSession once chat exists with session_id."""
+        if self._agent_session is None:
+            chat = chat_store.get_chat(self.chat_id, self.user_id)
+            if not chat or not chat.session_id:
+                raise ValueError(f"No session_id found for chat {self.chat_id}")
+            self._agent_session = AgentSession(session_id=chat.session_id, user_id=self.user_id)
+        return self._agent_session
 
     def _reset_state(self) -> None:
         """Reset per-response state variables."""
@@ -50,7 +60,9 @@ class Session:
         self._reset_state()
         try:
             msg_count = 0
-            async for message in self._agent_session.send_message(content):
+            # Ensure agent session exists (may have been created by send_message, or needs lazy creation)
+            agent_session = self._ensure_agent_session()
+            async for message in agent_session.send_message(content):
                 msg_count += 1
                 msg_type = type(message).__name__
                 _logger.debug(
@@ -84,7 +96,7 @@ class Session:
             # Only persist complete assistant messages (not when cancelled)
             if self._current_response_text:
                 chat_store.add_message(
-                    self.chat_id, self.workspace_id, "assistant", self._current_response_text
+                    self.chat_id, self.user_id, "assistant", self._current_response_text
                 )
                 _logger.debug(
                     f"[Session {self.chat_id}] Persisted assistant message, "
@@ -182,7 +194,8 @@ class Session:
                             tool_input = json.loads(self._current_tool_input)
                         else:
                             tool_input = {}
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
+                        _logger.warning(f"Failed to parse tool input JSON: {e}")
                         tool_input = {}
                     await self._broadcast(
                         {
@@ -196,29 +209,11 @@ class Session:
                     self._current_tool_input = ""
 
         elif isinstance(message, AssistantMessage):
+            # Already handled via StreamEvent deltas - do not broadcast again
             _logger.debug(
-                f"[Session {self.chat_id}] AssistantMessage received: "
+                f"[Session {self.chat_id}] AssistantMessage received (skip broadcast): "
                 f"content={message.content!r}, model={message.model}"
             )
-            for block in message.content:
-                if isinstance(block, TextBlock) and block.text:
-                    _logger.debug(f"[Session {self.chat_id}]   TextBlock.text = {block.text!r}")
-                    await self._accumulate_and_maybe_broadcast(
-                        block.text,
-                        "_current_response_text",
-                        "_pending_text_delta",
-                        "assistant_delta",
-                    )
-                elif isinstance(block, ThinkingBlock) and block.thinking:
-                    _logger.debug(
-                        f"[Session {self.chat_id}]   ThinkingBlock.thinking = {block.thinking!r}"
-                    )
-                    await self._accumulate_and_maybe_broadcast(
-                        block.thinking,
-                        "_current_response_thinking",
-                        "_pending_thinking_delta",
-                        "thinking_delta",
-                    )
 
         elif isinstance(message, ResultMessage):
             await self._flush_pending_deltas()
@@ -266,11 +261,17 @@ class Session:
                 pass
             # Send interrupt signal and drain remaining messages from the
             # interrupted turn (including its ResultMessage).
-            await self._agent_session.interrupt()
+            # Only interrupt if _agent_session was created (might be None if
+            # first task never got to create it before being cancelled)
+            if self._agent_session is not None:
+                await self._agent_session.interrupt()
             _logger.debug(f"[Session {self.chat_id}] Old task cancelled and drained")
 
+        # Ensure agent session exists (creates lazily after auto-creation)
+        self._ensure_agent_session()
+
         # Store user message
-        chat_store.add_message(self.chat_id, self.workspace_id, "user", content)
+        chat_store.add_message(self.chat_id, self.user_id, "user", content)
 
         # Broadcast user message
         await self._broadcast(
@@ -331,7 +332,9 @@ class Session:
                 _logger.debug(f"[Session {self.chat_id}] Response task cancelled successfully")
                 pass
             # Send interrupt signal and drain remaining messages
-            await self._agent_session.interrupt()
+            # Only interrupt if _agent_session was created
+            if self._agent_session is not None:
+                await self._agent_session.interrupt()
             _logger.debug(f"[Session {self.chat_id}] Finished stop_response")
         else:
             _logger.debug(f"[Session {self.chat_id}] No in-flight response to stop")
@@ -343,4 +346,5 @@ class Session:
                 await self._response_task
             except asyncio.CancelledError:
                 pass
-        await self._agent_session.close()
+        if self._agent_session is not None:
+            await self._agent_session.close()

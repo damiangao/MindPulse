@@ -105,15 +105,13 @@ export default function App() {
 
   const fetchChats = useCallback(async () => {
     if (!token) return;
-    try {
-      const res = await fetch(`${API_BASE}/chats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setChats(data);
-    } catch (error) {
-      console.error("Failed to fetch chats:", error);
-    }
+    const res = await fetch(`${API_BASE}/chats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Failed to fetch chats: ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error("Invalid chats response");
+    setChats(data);
   }, [token]);
 
   // Fetch chats when logged in
@@ -207,16 +205,19 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [draftChat, setDraftChat] = useState(null);
 
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const fetchedRef = useRef(false);
   const selectedChatIdRef = useRef(null);
   const loadingRef = useRef(false);
+  const connectingRef = useRef(false);
 
   const connectWebSocket = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) return;
+    if (connectingRef.current) return;
+    // Note: connectingRef.current is set to true in ws.onopen (when connection is established),
+    // not here. This ensures we don't think we have a connection while WebSocket is still CONNECTING.
 
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
@@ -224,6 +225,7 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
     ws.onopen = () => {
       console.log("WebSocket connected");
       setIsConnected(true);
+      connectingRef.current = true;
       const currentChatId = selectedChatIdRef.current;
       if (currentChatId) {
         ws.send(JSON.stringify({
@@ -237,7 +239,9 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
     ws.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        handleWSMessage(message);
+        handleWSMessage(message).catch((e) => {
+          console.error("Error handling WebSocket message:", e);
+        });
       } catch (e) {
         console.error("Failed to parse WebSocket message:", e);
       }
@@ -247,15 +251,17 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
       console.log("WebSocket disconnected");
       setIsConnected(false);
       wsRef.current = null;
+      connectingRef.current = false;
       reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
     };
 
     ws.onerror = (error) => {
       console.error("WebSocket error:", error);
+      connectingRef.current = false;
     };
   }, [token]);
 
-  const handleWSMessage = useCallback((message) => {
+  const handleWSMessage = useCallback(async (message) => {
     const msgChatId = message.chatId || message.chat_id;
     if (msgChatId && msgChatId !== selectedChatIdRef.current) {
       return;
@@ -287,6 +293,22 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
 
       case "assistant_delta":
         setMessages((prev) => {
+          // If there's a tool_use in the message list, append to a new assistant after it
+          const toolUseIdx = prev.findLastIndex((m) => m.role === "tool_use");
+          if (toolUseIdx >= 0) {
+            // Insert new assistant message after the last tool_use
+            const next = [...prev];
+            next.splice(toolUseIdx + 1, 0, {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: message.delta,
+              thinking: "",
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            });
+            return next;
+          }
+          // No tool_use yet - find streaming assistant and append
           const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
           if (revIdx >= 0) {
             const idx = prev.length - 1 - revIdx;
@@ -310,6 +332,20 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
 
       case "thinking_delta":
         setMessages((prev) => {
+          // If there's a tool_use in the list, create a new streaming assistant after it
+          const toolUseIdx = prev.findLastIndex((m) => m.role === "tool_use");
+          if (toolUseIdx >= 0) {
+            const next = [...prev];
+            next.splice(toolUseIdx + 1, 0, {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: "",
+              thinking: message.delta,
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            });
+            return next;
+          }
           const revIdx = prev.slice().reverse().findIndex((m) => m.role === "assistant" && m.isStreaming);
           if (revIdx >= 0) {
             const idx = prev.length - 1 - revIdx;
@@ -332,6 +368,7 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
         break;
 
       case "tool_use":
+        console.log("[DEBUG] tool_use:", message.tool_name, message.tool_input);
         setMessages((prev) => {
           const assistantIdx = prev.findLastIndex((m) => m.role === "assistant" && m.isStreaming);
           const insertIdx = assistantIdx >= 0 ? assistantIdx + 1 : prev.length;
@@ -376,7 +413,8 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
         });
         loadingRef.current = false;
         setIsLoading(false);
-        fetchChats();
+        // Await fetchChats to ensure sidebar updates before result is fully processed
+        await fetchChats();
         break;
 
       case "error":
@@ -398,81 +436,38 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
   // Re-subscribe when chat changes
   useEffect(() => {
     selectedChatIdRef.current = selectedChatId;
-    if (selectedChatId && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "subscribe",
-        chatId: selectedChatId,
-        authorization: `Bearer ${token}`,
-      }));
-    }
+    if (!selectedChatId) return;
+    if (!wsRef.current) return;
+    if (wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({
+      type: "subscribe",
+      chatId: selectedChatId,
+      authorization: `Bearer ${token}`,
+    }));
   }, [selectedChatId, token]);
 
   const createChat = () => {
-    setDraftChat(null);
     const tempId = crypto.randomUUID();
-    const now = new Date().toISOString();
-    setDraftChat({
-      id: tempId,
-      title: "New Chat",
-      createdAt: now,
-      updatedAt: now,
-    });
     setSelectedChatId(tempId);
     setMessages([]);
     loadingRef.current = false;
     setIsLoading(false);
   };
 
-  const initDraftChat = async (chatId) => {
-    if (!chatId) return chatId;
-    try {
-      const res = await fetch(`${API_BASE}/chats/init`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ tempId: chatId }),
-      });
-      const data = await res.json();
-      if (data.id) {
-        const draftTitle = draftChat?.title || "New Chat";
-        const formalChat = {
-          id: data.id,
-          title: draftTitle,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setChats((prev) => [formalChat, ...prev]);
-        setDraftChat(null);
-        selectedChatIdRef.current = data.id;
-        setSelectedChatId((current) => (current === chatId ? data.id : current));
-        return data.id;
-      }
-    } catch (error) {
-      console.error("Failed to init chat:", error);
-    }
-    return chatId;
-  };
-
   const deleteChat = async (chatId) => {
-    try {
-      await fetch(`${API_BASE}/chats/${chatId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setChats((prev) => prev.filter((c) => c.id !== chatId));
-      if (selectedChatId === chatId) {
-        setSelectedChatId(null);
-        setMessages([]);
-      }
-    } catch (error) {
-      console.error("Failed to delete chat:", error);
+    const res = await fetch(`${API_BASE}/chats/${chatId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error(`Failed to delete chat: ${res.status}`);
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    if (selectedChatId === chatId) {
+      setSelectedChatId(null);
+      setMessages([]);
     }
   };
 
   const selectChat = (chatId) => {
-    setDraftChat(null);
     selectedChatIdRef.current = chatId;
     setSelectedChatId(chatId);
     setMessages([]);
@@ -480,11 +475,16 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
     setIsLoading(false);
   };
 
-  const isDraftChat = (chatId) => !chats.some((c) => c.id === chatId);
-
   const handleSendMessage = async (content) => {
     if (!selectedChatId || !isConnected) return;
-
+    const chatId = selectedChatId;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    if (!loadingRef.current) {
+      loadingRef.current = true;
+      setIsLoading(true);
+    }
     setMessages((prev) => [
       ...prev,
       {
@@ -494,27 +494,14 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
         timestamp: new Date().toISOString(),
       },
     ]);
-
-    if (!loadingRef.current) {
-      loadingRef.current = true;
-      setIsLoading(true);
-    }
-
-    let chatId = selectedChatId;
-    if (isDraftChat(selectedChatId)) {
-      chatId = await initDraftChat(selectedChatId);
-    }
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: "chat",
-        content,
-        chatId,
-      }));
-    }
+    wsRef.current.send(JSON.stringify({
+      type: "chat",
+      content,
+      chatId,
+    }));
   };
 
-  const sidebarSelectedId = draftChat ? null : selectedChatId;
+  const sidebarSelectedId = selectedChatId;
 
   return (
     <div className="flex h-screen">
@@ -536,6 +523,7 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
         messages={messages}
         isConnected={isConnected}
         isLoading={isLoading}
+        token={token}
         onSendMessage={handleSendMessage}
         onStopResponse={() => {
           if (wsRef.current?.readyState === WebSocket.OPEN && selectedChatId) {
