@@ -44,3 +44,10 @@ dist/
 
 # Worktrees
 .worktrees/
+
+# Local data
+data/
+test-results/
+
+# Claude config
+.claude/
