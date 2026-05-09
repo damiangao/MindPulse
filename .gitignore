@@ -51,3 +51,7 @@ test-results/
 
 # Claude config
 .claude/
+
+# Local docs (superpowers, specs)
+docs/superpowers/
+docs/design/specs/
