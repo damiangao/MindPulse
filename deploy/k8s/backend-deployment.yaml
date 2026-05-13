@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mindpulse-server
+  namespace: mindpulse
+  labels:
+    app: mindpulse
+    component: server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mindpulse
+      component: server
+  template:
+    metadata:
+      labels:
+        app: mindpulse
+        component: server
+    spec:
+      containers:
+        - name: server
+          image: mindpulse-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              name: http
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: mindpulse-server-config
+                  key: PORT
+            - name: MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: mindpulse-server-config
+                  key: MODEL
+            - name: ANTHROPIC_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mindpulse-server-config
+                  key: ANTHROPIC_BASE_URL
+            - name: JWT_EXPIRE_HOURS
+              valueFrom:
+                configMapKeyRef:
+                  name: mindpulse-server-config
+                  key: JWT_EXPIRE_HOURS
+            - name: AGENT_PROJECT_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: mindpulse-server-config
+                  key: AGENT_PROJECT_ROOT
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mindpulse-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mindpulse-secrets
+                  key: JWT_SECRET
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /api/auth/me
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/auth/me
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: workspaces
+              mountPath: /app/workspaces
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: workspaces
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mindpulse-server
+  namespace: mindpulse
+  labels:
+    app: mindpulse
+    component: server
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3001
+      targetPort: 3001
+      protocol: TCP
+      name: http
+  selector:
+    app: mindpulse
+    component: server

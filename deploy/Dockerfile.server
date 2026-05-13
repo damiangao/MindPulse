@@ -1,0 +1,27 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies (exclude dev dependencies)
+RUN uv sync --no-dev --frozen --no-install-project
+
+# Copy application code
+COPY server/ ./server/
+COPY *.py ./
+
+# Create data directory for SQLite
+RUN mkdir -p /app/data
+
+ENV PYTHONPATH=/app
+ENV PORT=3001
+
+EXPOSE 3001
+
+# Run with uvicorn
+CMD ["uv", "run", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "3001"]

@@ -142,3 +142,7 @@ The backend reads these from `.env`:
 - All protected endpoints require `Authorization: Bearer <token>` header.
 - Workspace data stored in `data/workspaces/{user_id}/` (gitignored).
 - Database: `data/chats.db` (gitignored), shared SQLite with `user_id` column for isolation.
+
+## Documentation
+
+- **`docs/claude_agent_sdk.md`** — Claude Agent SDK 完整文档，包含 API 参考和使用示例。开发 AI 功能时可查阅此文档。

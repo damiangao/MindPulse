@@ -1,0 +1,42 @@
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    container_name: mindpulse-server
+    ports:
+      - "3001:3001"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-https://api.minimax.io}
+      - MODEL=${MODEL:-MiniMax-M2.7}
+      - PORT=3001
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production-min-32-bytes}
+      - JWT_EXPIRE_HOURS=${JWT_EXPIRE_HOURS:-24}
+      - AGENT_PROJECT_ROOT=/app/workspaces
+    volumes:
+      - ../server:/app/server
+      - server-data:/app/data
+      - server-workspaces:/app/workspaces
+    restart: unless-stopped
+
+  client:
+    image: node:20-alpine
+    container_name: mindpulse-client
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_WS_URL=ws://localhost:3001/ws
+      - VITE_API_URL=http://localhost:3001
+    volumes:
+      - ../:/app
+      - /app/node_modules
+    command: npm run dev:client
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  server-data:
+  server-workspaces:

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mindpulse
+  labels:
+    app.kubernetes.io/name: mindpulse
+    app.kubernetes.io/managed-by: kubectl
