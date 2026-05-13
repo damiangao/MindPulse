@@ -175,6 +175,9 @@ uv run pyright            # Type check
 # 测试
 uv run pytest tests/      # 后端测试
 npx playwright test       # E2E 测试
+
+# 部署
+cp deploy/.env.docker .env && docker compose -f deploy/docker-compose.yml up --build
 ```
 
 ---

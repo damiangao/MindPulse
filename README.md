@@ -49,9 +49,17 @@ Visit http://localhost:5173 to use the app.
 │   ├── App.jsx              # Root + ChatApp component
 │   ├── components/          # ChatList, ChatWindow, FileUpload
 │   └── tests/               # Vitest tests
+├── deploy/                  # Deployment configs
+│   ├── docker-compose.yml   # Production Docker Compose
+│   ├── docker-compose.dev.yml  # Development Docker Compose
+│   ├── Dockerfile.server    # Backend image
+│   ├── Dockerfile.client    # Frontend image (Nginx)
+│   ├── nginx.conf          # Nginx config
+│   └── k8s/               # Kubernetes configs
 ├── data/                    # Workspace data (gitignored)
 │   └── workspaces/          # Per-user workspace dirs
 │       └── {user_id}/      # Agent files + uploaded files
+├── docs/                    # Documentation
 ├── pyproject.toml          # UV config
 ├── package.json             # npm scripts
 ├── vite.config.js           # Vite + Vitest config

@@ -175,21 +175,41 @@ MindPulse 使用 `claude-agent-sdk`，以下工具已内置：
 
 ## 关键文件
 
+### 前端
 | 文件 | 职责 |
 |------|------|
 | `client/App.jsx` | 主组件，WebSocket 管理，状态管理 |
 | `client/components/ChatList.jsx` | 侧边栏聊天列表 |
-| `client/components/ChatWindow.jsx` | 聊天消息展示和输入 |
+| `client/components/ChatWindow.jsx` | 聊天消息展示和输入，包含 ThinkingBlock |
+| `client/components/FileUpload.jsx` | 文件上传组件 |
+
+### 后端
+| 文件 | 职责 |
+|------|------|
 | `server/main.py` | FastAPI 应用，REST API，WebSocket 端点 |
 | `server/session.py` | Session 类，管理 AI 交互和 WebSocket 订阅 |
 | `server/ai_client.py` | AgentSession 包装 SDK |
 | `server/chat_store.py` | DB 操作门面 |
 | `server/models.py` | 数据模型 |
 | `server/auth.py` | JWT 工具 |
+| `server/auth_routes.py` | 认证 API 端点 |
+| `server/file_storage.py` | 文件存储 |
 | `server/database/connection.py` | SQLite 连接管理 |
+| `server/database/repositories/chat.py` | ChatRepository |
+| `server/database/repositories/message.py` | MessageRepository |
+
+### 部署
+| 文件 | 职责 |
+|------|------|
+| `deploy/docker-compose.yml` | 生产 Docker Compose 配置 |
+| `deploy/docker-compose.dev.yml` | 开发 Docker Compose 配置 |
+| `deploy/Dockerfile.server` | 后端镜像 |
+| `deploy/Dockerfile.client` | 前端镜像 |
+| `deploy/nginx.conf` | Nginx 配置 |
+| `deploy/k8s/` | Kubernetes 部署配置 |
 
 ---
 
 ## Change Log
 
-- 2026-05-13: 整合 current-state.md 和 functional-design.md，添加 SDK 内置工具说明
+- 2026-05-13: 整合 current-state.md 和 functional-design.md，添加 SDK 内置工具说明，补充部署文件列表

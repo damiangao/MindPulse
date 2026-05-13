@@ -111,7 +111,7 @@ kubectl rollout status deployment/mindpulse-client -n mindpulse
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | ANTHROPIC_API_KEY | Yes | - | Anthropic API key |
-| ANTHROPIC_BASE_URL | No | https://api.minimax.io | API base URL |
+| ANTHROPIC_BASE_URL | No | https://api.minimaxi.com/anthropic | API base URL |
 | MODEL | No | MiniMax-M2.7 | Model to use |
 | PORT | No | 3001 | Backend server port |
 | JWT_SECRET | Yes | - | JWT signing secret (min 32 bytes) |
