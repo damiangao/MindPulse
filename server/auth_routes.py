@@ -4,9 +4,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException
 
+import os
+
 from server.auth import create_token, decode_token, generate_user_id, hash_password, verify_password
 from server.database.connection import get_workspace_db
 from server.models import User
+
+AGENT_PROJECT_ROOT = os.environ.get("AGENT_PROJECT_ROOT", ".")
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -40,6 +44,10 @@ def create_user(email: str, password: str) -> User:
             (user_id, email, password_hash, now),
         )
         conn.commit()
+
+    # Create workspace directory immediately after user creation
+    workspace_root = os.path.join(AGENT_PROJECT_ROOT, user_id)
+    os.makedirs(workspace_root, exist_ok=True)
 
     return User(
         id=user_id,

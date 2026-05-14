@@ -1,7 +1,11 @@
 #!/bin/bash
-# claude-chat 启动脚本
+# MindPulse 启动脚本
 
 set -e
+
+# 获取脚本所在目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # 颜色
 RED='\033[0;31m'
@@ -30,14 +34,13 @@ kill_port() {
 # 杀进程
 echo_step "Stopping any existing processes..."
 kill_port 3001  # backend
-kill_port 5173   # frontend
-kill_port 3333   # playwright server
+kill_port 5173  # frontend
 
 # 确保 data 目录存在
-mkdir -p data
+mkdir -p "$PROJECT_DIR/data"
 
 echo_step "Starting backend (port 3001)..."
-cd /Users/damian/workspace/claude-chat
+cd "$PROJECT_DIR"
 PYTHONPATH=. uv run python -m server.main &
 BACKEND_PID=$!
 
@@ -45,6 +48,7 @@ BACKEND_PID=$!
 sleep 3
 
 echo_step "Starting frontend (port 5173)..."
+cd "$PROJECT_DIR"
 npm run dev:client &
 FRONTEND_PID=$!
 

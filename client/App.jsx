@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ChatList } from "./components/ChatList";
 import { ChatWindow } from "./components/ChatWindow";
+import { FileTree } from "./components/FileBrowser/FileTree";
 
 const API_BASE = "/api";
 const WS_URL = `ws://${window.location.host}/ws`;
@@ -211,6 +212,9 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [activeTab, setActiveTab] = useState("chats");
+  const [insertedPath, setInsertedPath] = useState(null);
+  const [workspaceRoot, setWorkspaceRoot] = useState("");
 
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
@@ -218,6 +222,14 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
   const selectedChatIdRef = useRef(null);
   const loadingRef = useRef(false);
   const connectingRef = useRef(false);
+
+  // Fetch workspace root from server config
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then((data) => setWorkspaceRoot(data.workspace_root || ""))
+      .catch(() => setWorkspaceRoot(""));
+  }, []);
 
   const findStreamingAssistantIdx = (messages) => {
     const revIdx = messages.slice().reverse().findIndex((m) => m.role === ROLE.ASSISTANT && m.isStreaming);
@@ -472,6 +484,7 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
   };
 
   const selectChat = (chatId) => {
+    if (chatId === selectedChatIdRef.current) return; // Skip if already selected
     selectedChatIdRef.current = chatId;
     setSelectedChatId(chatId);
     setMessages([]);
@@ -505,22 +518,59 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
     }));
   };
 
+  const handleInsertPath = useCallback((path) => {
+    setInsertedPath(path);
+    setActiveTab("chats");
+  }, []);
+
   const sidebarSelectedId = selectedChatId;
 
   return (
     <div className="flex h-screen">
-      <div className="w-64 shrink-0">
+      {/* Tab buttons */}
+      <div className="w-12 shrink-0 bg-gray-800 flex flex-col items-center py-4 gap-2">
+        <button
+          onClick={() => setActiveTab("chats")}
+          className={`w-10 h-10 rounded flex items-center justify-center text-lg ${
+            activeTab === "chats" ? "bg-gray-700" : "hover:bg-gray-700"
+          }`}
+          title="Chats"
+        >
+          💬
+        </button>
+        <button
+          onClick={() => setActiveTab("files")}
+          className={`w-10 h-10 rounded flex items-center justify-center text-lg ${
+            activeTab === "files" ? "bg-gray-700" : "hover:bg-gray-700"
+          }`}
+          title="Files"
+        >
+          📁
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="w-64 shrink-0 flex flex-col">
         <div className="flex items-center justify-between p-4 border-b">
           <span className="font-medium truncate">{user.email}</span>
           <button onClick={logout} className="text-sm text-gray-500 hover:text-gray-700">Logout</button>
         </div>
-        <ChatList
-          chats={chats}
-          selectedChatId={sidebarSelectedId}
-          onSelectChat={selectChat}
-          onNewChat={createChat}
-          onDeleteChat={deleteChat}
-        />
+        {activeTab === "chats" ? (
+          <ChatList
+            chats={chats}
+            selectedChatId={sidebarSelectedId}
+            onSelectChat={selectChat}
+            onNewChat={createChat}
+            onDeleteChat={deleteChat}
+          />
+        ) : (
+          <FileTree
+            userId={user.id}
+            token={token}
+            workspaceRoot={workspaceRoot}
+            onInsertPath={handleInsertPath}
+          />
+        )}
       </div>
       <ChatWindow
         chatId={selectedChatId}
@@ -528,6 +578,8 @@ function ChatApp({ user, token, logout, chats, setChats, fetchChats }) {
         isConnected={isConnected}
         isLoading={isLoading}
         token={token}
+        insertedPath={insertedPath}
+        onInsertPathChange={setInsertedPath}
         onSendMessage={handleSendMessage}
         onStopResponse={() => {
           if (wsRef.current?.readyState === WebSocket.OPEN && selectedChatId) {

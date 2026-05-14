@@ -58,7 +58,7 @@ export function UploadZone({ userId, token, onUpload }) {
 
   return (
     <div
-      className={`m-2 p-4 border-2 border-dashed rounded text-center transition-colors ${
+      className={`mx-2 my-1 p-4 border-2 border-dashed rounded text-center transition-colors ${
         dragOver ? "border-blue-400 bg-blue-50" : "border-gray-300 hover:border-gray-400"
       }`}
       onDrop={handleDrop}
@@ -75,9 +75,9 @@ export function UploadZone({ userId, token, onUpload }) {
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={isUploading}
-        className="text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50"
+        className="text-sm text-gray-600 hover:text-gray-800 disabled:opacity-50 whitespace-nowrap"
       >
-        {isUploading ? "Uploading..." : "Drop files here or click to upload"}
+        {isUploading ? "上传中..." : "拖拽或点击上传"}
       </button>
     </div>
   );
