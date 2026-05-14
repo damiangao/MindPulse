@@ -24,7 +24,7 @@ from server.ai_client import AgentSession
 from server.auth import decode_token
 from server.auth_routes import router as auth_router
 from server.chat_store import chat_store
-from server.file_storage import get_file_path, save_file
+from server.file_storage import delete_path, get_file_path, list_directory, rename_path, save_file, create_directory
 from server.session import Session
 
 load_dotenv(override=True)
@@ -109,6 +109,12 @@ async def root():
     return FileResponse("client/index.html")
 
 
+# REST API: Get client config (no auth required)
+@app.get("/api/config")
+async def get_config():
+    return {"workspace_root": get_project_root()}
+
+
 # REST API: Get all chats (auth required)
 @app.get("/api/chats")
 async def get_chats(user_id: str = Depends(get_current_user)):
@@ -179,12 +185,11 @@ async def get_messages(chat_id: str, user_id: str = Depends(get_current_user)):
 @app.post("/api/files/upload")
 async def upload_file(
     file: UploadFile,
-    chatId: str = Form(...),
     user_id: str = Depends(get_current_user),
 ):
     project_root = get_project_root()
     content = await file.read()
-    relative_path = save_file(content, user_id, chatId, file.filename or "uploaded_file", project_root)
+    relative_path = save_file(content, user_id, file.filename or "uploaded_file", project_root)
     return {"path": relative_path}
 
 
@@ -199,6 +204,76 @@ async def download_file(path: str, user_id: str = Depends(get_current_user)):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(file_path, filename=file_path.name)
+
+
+# REST API: List directory (auth required)
+@app.get("/api/files/list")
+async def list_files(path: str, user_id: str = Depends(get_current_user)):
+    """List files and directories at the given relative path under user's workspace."""
+    project_root = get_project_root()
+    # Only allow access to user's own workspace: path must be empty (root), equal to user_id, or start with {user_id}/
+    if path and path != user_id and not path.startswith(f"{user_id}/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        items = list_directory(path, project_root)
+        return items
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Directory not found")
+    except NotADirectoryError:
+        raise HTTPException(status_code=400, detail="Not a directory")
+
+
+# REST API: Delete file or directory (auth required)
+@app.delete("/api/files")
+async def delete_file(path: str, user_id: str = Depends(get_current_user)):
+    """Delete file or directory at the given relative path."""
+    project_root = get_project_root()
+    if not path.startswith(f"{user_id}/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        delete_path(path, project_root)
+        return {"success": True}
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Path not found")
+
+
+# REST API: Rename file or directory (auth required)
+@app.put("/api/files/rename")
+async def rename_file(payload: dict, user_id: str = Depends(get_current_user)):
+    """Rename file or directory. Body: {old_path, new_path}"""
+    project_root = get_project_root()
+    old_path = payload.get("old_path", "")
+    new_path = payload.get("new_path", "")
+
+    if not old_path or not new_path:
+        raise HTTPException(status_code=400, detail="old_path and new_path are required")
+    if not old_path.startswith(f"{user_id}/") or not new_path.startswith(f"{user_id}/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        result = rename_path(old_path, new_path, project_root)
+        return result
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Path not found")
+
+
+# REST API: Create directory (auth required)
+@app.post("/api/files/mkdir")
+async def make_directory(payload: dict, user_id: str = Depends(get_current_user)):
+    """Create a directory. Body: {path} - full relative path including dir name."""
+    project_root = get_project_root()
+    path = payload.get("path", "")
+
+    if not path:
+        raise HTTPException(status_code=400, detail="path is required")
+    if not path.startswith(f"{user_id}/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    try:
+        result = create_directory(path, project_root)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # WebSocket endpoint

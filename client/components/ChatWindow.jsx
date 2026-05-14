@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { FileUpload } from "./FileUpload";
 
 function ToolUseBlock({ message }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -102,18 +101,6 @@ function ThinkingBlock({ thinking }) {
 
 function MessageBubble({ message }) {
   const isUser = message.role === "user";
-  const [downloadFiles, setDownloadFiles] = useState([]);
-
-  // Detect workspace file paths in content
-  useEffect(() => {
-    if (!isUser && message.content) {
-      const pattern = /workspace\/[^\/\s]+/g;
-      const matches = message.content.match(pattern);
-      if (matches) {
-        setDownloadFiles([...new Set(matches)]);
-      }
-    }
-  }, [message.content, isUser]);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -125,24 +112,6 @@ function MessageBubble({ message }) {
         }`}
       >
         <p className="whitespace-pre-wrap break-words">{message.content.replace(/^\n+/, '')}</p>
-        {downloadFiles.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {downloadFiles.map((path) => (
-              <a
-                key={path}
-                href={`/api/files/download?path=${encodeURIComponent(path)}`}
-                download
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M6 1a.5.5 0 0 1 .5.5v7.793l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 0 1 .708-.708L5.5 9.293V1.5A.5.5 0 0 1 6 1z"/>
-                  <path d="M1 10a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-1z"/>
-                </svg>
-                Download {path.split("/").pop()}
-              </a>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -156,6 +125,8 @@ export function ChatWindow({
   onSendMessage,
   onStopResponse,
   token,
+  insertedPath,
+  onInsertPathChange,
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
@@ -185,6 +156,14 @@ export function ChatWindow({
   const handleFileUploaded = useCallback((path, filename) => {
     onSendMessage(`File uploaded: ${path}`);
   }, [onSendMessage]);
+
+  // Handle path insertion from file browser
+  useEffect(() => {
+    if (insertedPath) {
+      setInput(insertedPath);
+      onInsertPathChange(null);
+    }
+  }, [insertedPath, onInsertPathChange]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -282,7 +261,6 @@ export function ChatWindow({
               Send
             </button>
           )}
-          <FileUpload chatId={chatId} token={token} onFileUploaded={handleFileUploaded} />
         </form>
       </div>
     </div>

@@ -162,6 +162,7 @@ MindPulse 使用 `claude-agent-sdk`，以下工具已内置：
 | `/api/auth/register` | POST | 注册 |
 | `/api/auth/login` | POST | 登录 |
 | `/api/auth/me` | GET | 获取当前用户 |
+| `/api/config` | GET | 获取服务端配置（如 workspace_root） |
 | `/api/chats` | GET | 获取所有 chats |
 | `/api/chats` | POST | 创建新 chat |
 | `/api/chats/init` | POST | 初始化 draft chat |
@@ -170,6 +171,10 @@ MindPulse 使用 `claude-agent-sdk`，以下工具已内置：
 | `/api/chats/{chat_id}/messages` | GET | 获取消息 |
 | `/api/files/upload` | POST | 上传文件 |
 | `/api/files/download` | GET | 下载文件 |
+| `/api/files/list` | GET | 列出目录内容 |
+| `/api/files` | DELETE | 删除文件或目录 |
+| `/api/files/rename` | PUT | 重命名文件或目录 |
+| `/api/files/mkdir` | POST | 创建目录 |
 
 ---
 
@@ -181,7 +186,7 @@ MindPulse 使用 `claude-agent-sdk`，以下工具已内置：
 | `client/App.jsx` | 主组件，WebSocket 管理，状态管理 |
 | `client/components/ChatList.jsx` | 侧边栏聊天列表 |
 | `client/components/ChatWindow.jsx` | 聊天消息展示和输入，包含 ThinkingBlock |
-| `client/components/FileUpload.jsx` | 文件上传组件 |
+| `client/components/FileBrowser/` | 文件浏览器（FileTree, ContextMenu, UploadZone） |
 
 ### 后端
 | 文件 | 职责 |

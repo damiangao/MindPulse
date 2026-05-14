@@ -25,7 +25,6 @@ class TestFileUploadE2E:
         res = client.post(
             "/api/files/upload",
             files={"file": file},
-            data={"chatId": "chat-e2e"},
             headers=auth_header(),
         )
         assert res.status_code == 200

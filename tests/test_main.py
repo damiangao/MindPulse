@@ -478,13 +478,13 @@ class TestFileUploadAPI:
         response = client.post(
             "/api/files/upload",
             files={"file": file},
-            data={"chatId": "chat-123"},
             headers=auth_header(),
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["path"] == "test-user-123/chat-123/test.txt"
-        assert (tmp_path / "test-user-123" / "chat-123" / "test.txt").read_bytes() == file_content
+        # Files now go directly to {user_id}/ root
+        assert data["path"] == "test-user-123/test.txt"
+        assert (tmp_path / "test-user-123" / "test.txt").read_bytes() == file_content
 
     def test_upload_file_missing_chat_id(self, client):
         from io import BytesIO
@@ -493,7 +493,8 @@ class TestFileUploadAPI:
 
         file = ("test.txt", BytesIO(b"content"), "text/plain")
         response = client.post("/api/files/upload", files={"file": file}, headers=auth_header())
-        assert response.status_code == 422  # FastAPI validation error
+        # chatId is now optional, defaults to "workspace"
+        assert response.status_code == 200
 
     @patch("server.main.get_project_root")
     def test_download_file(self, mock_root, client, tmp_path):
