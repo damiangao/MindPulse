@@ -24,10 +24,50 @@ from server.ai_client import AgentSession
 from server.auth import decode_token
 from server.auth_routes import router as auth_router
 from server.chat_store import chat_store
-from server.file_storage import delete_path, get_file_path, list_directory, rename_path, save_file, create_directory
+from server.file_storage import (
+    delete_path,
+    get_file_path,
+    list_directory,
+    rename_path,
+    save_file,
+    create_directory,
+)
 from server.session import Session
 
 load_dotenv(override=True)
+
+
+def _validate_startup():
+    """Validate required environment and dependencies at startup."""
+    errors = []
+
+    # Check required env vars
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        errors.append("ANTHROPIC_API_KEY is not set")
+    if not os.environ.get("JWT_SECRET"):
+        errors.append("JWT_SECRET is not set")
+    elif len(os.environ["JWT_SECRET"]) < 32:
+        errors.append("JWT_SECRET must be at least 32 characters")
+
+    # Check database writable
+    try:
+        from server.database.connection import get_workspace_db
+
+        with get_workspace_db("system") as conn:
+            conn.execute("SELECT 1").fetchone()
+    except Exception as e:
+        errors.append(f"Database not accessible: {e}")
+
+    # Check workspace writable
+    project_root = os.getenv("AGENT_PROJECT_ROOT", ".")
+    if not os.access(project_root, os.W_OK):
+        errors.append(f"Workspace not writable: {project_root}")
+
+    if errors:
+        print("ERROR: Startup validation failed:", file=sys.stderr)
+        for err in errors:
+            print(f"  - {err}", file=sys.stderr)
+        sys.exit(1)
 
 PORT = int(os.getenv("PORT", "3001"))
 
@@ -115,6 +155,34 @@ async def get_config():
     return {"workspace_root": get_project_root()}
 
 
+# Health check endpoint (no auth required)
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for K8s/load balancer."""
+    # Check 1: Database writable
+    try:
+        from server.database.connection import get_workspace_db
+
+        with get_workspace_db("system") as conn:
+            conn.execute("SELECT 1").fetchone()
+    except Exception as e:
+        return {"status": "error", "detail": f"Database error: {e}"}, 503
+
+    # Check 2: API key exists (don't validate it, just check presence)
+    from server.ai_client import AgentSession
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return {"status": "error", "detail": "ANTHROPIC_API_KEY not set"}, 503
+
+    # Check 3: Workspace directory writable
+    project_root = get_project_root()
+    if not os.access(project_root, os.W_OK):
+        return {"status": "error", "detail": f"Workspace not writable: {project_root}"}, 503
+
+    return {"status": "ok"}
+
+
 # REST API: Get all chats (auth required)
 @app.get("/api/chats")
 async def get_chats(user_id: str = Depends(get_current_user)):
@@ -138,6 +206,7 @@ async def _create_sdk_chat(chat_id: str, user_id: str, title: str | None = None)
 @app.post("/api/chats")
 async def create_chat(payload: dict | None = None, user_id: str = Depends(get_current_user)):
     from uuid import uuid4
+
     return await _create_sdk_chat(str(uuid4()), user_id, payload.get("title") if payload else None)
 
 
@@ -359,8 +428,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         continue
                     content = message["content"]
                     _logger.info(
-                        f"[WebSocket] Chat msg for chat_id={chat_id}, "
-                        f"content={content[:30]}..."
+                        f"[WebSocket] Chat msg for chat_id={chat_id}, content={content[:30]}..."
                     )
 
                     # Auto-create chat + session if they don't exist
@@ -370,7 +438,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         agent_session = AgentSession(user_id=user_id)
                         session_id = await agent_session.init()
                         if not session_id:
-                            _logger.error(f"[WebSocket] Failed to init session for chat_id={chat_id}")
+                            _logger.error(
+                                f"[WebSocket] Failed to init session for chat_id={chat_id}"
+                            )
                             await websocket.send_json(
                                 {
                                     "type": "error",
@@ -379,7 +449,9 @@ async def websocket_endpoint(websocket: WebSocket):
                             )
                             continue
                         chat_store.create_chat(chat_id, user_id, None, session_id)
-                        _logger.info(f"[WebSocket] Created chat {chat_id} with session_id={session_id}")
+                        _logger.info(
+                            f"[WebSocket] Created chat {chat_id} with session_id={session_id}"
+                        )
 
                     session = get_or_create_session(chat_id, user_id)
                     await session.send_message(content)
@@ -437,6 +509,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 def main():
     import uvicorn
+
+    _validate_startup()
 
     _logger.info(f"Server running at http://localhost:{PORT}")
     _logger.info(f"WebSocket endpoint available at ws://localhost:{PORT}/ws")
