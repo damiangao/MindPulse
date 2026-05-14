@@ -55,7 +55,7 @@ class AgentSession:
             model=DEFAULT_MODEL,
             thinking=DEFAULT_THINKING,
             include_partial_messages=True,
-            setting_sources=["project"],
+            setting_sources=["user", "project"],
             allowed_tools=[
                 "Bash",
                 "Skill",

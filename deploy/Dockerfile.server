@@ -15,6 +15,9 @@ RUN uv sync --no-dev --frozen --no-install-project
 COPY server/ ./server/
 COPY *.py ./
 
+# Copy default skills for all users
+COPY default_skills/ /root/.claude/skills/
+
 # Create data directory for SQLite
 RUN mkdir -p /app/data
 
