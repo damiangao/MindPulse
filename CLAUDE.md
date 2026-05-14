@@ -51,7 +51,7 @@ The backend reads `.env` via `load_dotenv()` in `server/main.py`. Any code using
 
 - **`server/main.py`** — FastAPI app with REST API and WebSocket endpoint (`/ws`). Maintains a `_sessions` dict of `Session` objects. On WebSocket disconnect, unsubscribes the client and cleans up sessions with no remaining subscribers.
 - **`server/session.py`** — `Session` class manages one chat session. It wraps `AgentSession`, stores messages via `chat_store`, and broadcasts responses to WebSocket subscribers. Uses `StreamEvent` from the SDK for streaming output, with a `_DELTA_BUFFER_SIZE` of 20 chars to batch small deltas before broadcasting. Supports interruption: calling `send_message()` while a response is in-flight cancels the old task and calls `interrupt()` on the agent.
-- **`server/ai_client.py`** — `AgentSession` wraps `ClaudeSDKClient` from `claude-agent-sdk`. Uses a long-lived connection with an `asyncio.Queue` for streaming input, allowing interruption without reconnecting. Yields SDK messages until `ResultMessage`. Extracts `session_id` from `SystemMessage(subtype="init")`. Per-user workspace is `{AGENT_PROJECT_ROOT}/{user_id}/`.
+- **`server/ai_client.py`** — `AgentSession` wraps `ClaudeSDKClient` from `claude-agent-sdk`. Uses a long-lived connection with an `asyncio.Queue` for streaming input, allowing interruption without reconnecting. Yields SDK messages until `ResultMessage`. Extracts `session_id` from `SystemMessage(subtype="init")`. Per-user workspace is `{AGENT_PROJECT_ROOT}/{user_id}/`. `setting_sources=["user", "project"]` loads skills from both global (`/root/.claude/skills/`, bundled in Docker) and per-user workspace.
 - **`server/chat_store.py`** — SQLite-backed `ChatStore`. Uses per-user `get_workspace_db()` connections with WAL mode. `create_chat()` takes an external ID (the SDK's `session_id`). `add_message()` auto-updates the chat title from the first user message.
 - **`server/models.py`** — Dataclasses: `User`, `Chat`, `ChatMessage`.
 - **`server/auth.py`** — JWT auth utilities: `create_token()`, `decode_token()`, `hash_password()`, `verify_password()`.
@@ -152,6 +152,12 @@ Key E2E test files:
 - Database: `data/chats.db` (gitignored), shared SQLite with `user_id` column for isolation.
 - File download: `GET /api/files/download?path=...` requires `Authorization` header (uses `fetch` + blob, not `window.location.href`).
 - `/api/config` returns `{"workspace_root": get_project_root()}` — used by FileBrowser to construct correct absolute paths for "Add to chat".
+
+## Skills
+
+**Default skills** are bundled in Docker image at `/root/.claude/skills/` via `deploy/Dockerfile.server` copying `default_skills/`. These are loaded via `setting_sources=["user", "project"]` in `ai_client.py`:
+- `user`: global skills bundled in Docker (`/root/.claude/skills/`)
+- `project`: user-specific skills in `{workspace}/.claude/skills/`
 
 ## Documentation
 
